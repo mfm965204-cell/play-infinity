@@ -1,7 +1,11 @@
 package com.playinfinity.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,14 +34,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.playinfinity.app.data.Api
 import com.playinfinity.app.data.AppSettings
 
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
-    premiumUnlocked: Boolean = true,
+    deviceId: String,
+    banned: Boolean,
+    lastChecked: String,
     onRefresh: () -> Unit,
-    onEnterLicense: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var legalTitle by remember { mutableStateOf<String?>(null) }
@@ -45,7 +51,7 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -57,27 +63,28 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsCard(title = "Play Infinity") {
+            SettingsCard(title = "Device") {
                 InfoRow("App version", settings.appVersion)
+                InfoRow("Device ID", deviceId.take(18) + "…", onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Device ID", deviceId))
+                    Toast.makeText(context, "Device ID copied", Toast.LENGTH_SHORT).show()
+                })
+                InfoRow("Status", if (banned) "Banned" else "Active")
+                InfoRow("Last check", lastChecked.ifBlank { "—" })
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = onRefresh) { Text("Check for updates") }
+                Button(onClick = onRefresh) { Text("Check again") }
             }
         }
 
         item {
-            SettingsCard(title = "Premium") {
-                InfoRow(
-                    "Status",
-                    when {
-                        !settings.isPremiumEnabled -> "Not enabled"
-                        premiumUnlocked -> "Unlocked on this device"
-                        else -> "Locked"
-                    },
-                )
-                if (settings.isPremiumEnabled && !premiumUnlocked) {
-                    Spacer(Modifier.height(10.dp))
-                    Button(onClick = onEnterLicense) { Text("Enter license key") }
-                }
+            SettingsCard(title = "Playback") {
+                InfoRow("Default quality", "Auto (adaptive)")
+                InfoRow("Player", "Media3 ExoPlayer")
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = {
+                    Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                }) { Text("Clear cache") }
             }
         }
 
@@ -85,48 +92,54 @@ fun SettingsScreen(
             SettingsCard(title = "Legal") {
                 LegalRow("Privacy Policy") {
                     legalTitle = "Privacy Policy"
-                    legalBody = settings.privacyPolicy.ifBlank { "No privacy policy has been published yet." }
+                    legalBody = settings.privacyPolicy.ifBlank { "No privacy policy published yet." }
                 }
                 LegalRow("Terms & Conditions") {
                     legalTitle = "Terms & Conditions"
-                    legalBody = settings.termsConditions.ifBlank { "No terms have been published yet." }
+                    legalBody = settings.termsConditions.ifBlank { "No terms published yet." }
+                }
+                LegalRow("Open web version") {
+                    openUrl(context, Api.BASE_URL + "privacy")
                 }
             }
         }
 
         item {
-            SettingsCard(title = "Developer") {
+            SettingsCard(title = "About developer") {
                 InfoRow("Developer", settings.developerName)
                 LegalRow("Portfolio") { openUrl(context, settings.developerPortfolio) }
-                LegalRow("Instagram support") { openUrl(context, settings.developerInstagram) }
+                LegalRow("Instagram") { openInstagram(context, settings.developerInstagram) }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Developed by ${settings.developerName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
         item {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Developed by ${settings.developerName}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(24.dp))
+            SettingsCard(title = "Support") {
+                LegalRow("Contact support on Instagram") {
+                    openInstagram(context, settings.developerInstagram)
+                }
+            }
         }
+
+        item { Spacer(Modifier.height(20.dp)) }
     }
 
     val title = legalTitle
     if (title != null) {
         AlertDialog(
             onDismissRequest = { legalTitle = null },
-            confirmButton = {
-                TextButton(onClick = { legalTitle = null }) { Text("Close") }
-            },
+            confirmButton = { TextButton(onClick = { legalTitle = null }) { Text("Close") } },
             title = { Text(title) },
             text = {
                 Text(
                     text = legalBody,
-                    modifier = Modifier.height(420.dp).verticalScroll(rememberScrollState()),
+                    modifier = Modifier.height(400.dp).verticalScroll(rememberScrollState()),
                     style = MaterialTheme.typography.bodySmall,
                 )
             },
@@ -136,16 +149,9 @@ fun SettingsScreen(
 
 @Composable
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Panel),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-            )
+            Text(text = title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             content()
         }
@@ -153,8 +159,13 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+private fun InfoRow(label: String, value: String, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 5.dp),
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
@@ -178,11 +189,22 @@ private fun LegalRow(label: String, onClick: () -> Unit) {
     }
 }
 
-private fun openUrl(context: android.content.Context, url: String) {
+private fun openUrl(context: Context, url: String) {
     if (url.isBlank()) return
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     } catch (_: Exception) {
-        // no browser installed
+    }
+}
+
+private fun openInstagram(context: Context, url: String) {
+    if (url.isBlank()) return
+    try {
+        val handle = url.trimEnd('/').substringAfterLast('/')
+        val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("http://instagram.com/_u/$handle"))
+        appIntent.setPackage("com.instagram.android")
+        context.startActivity(appIntent)
+    } catch (_: Exception) {
+        openUrl(context, url)
     }
 }

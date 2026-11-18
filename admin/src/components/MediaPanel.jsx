@@ -14,12 +14,11 @@ const EMPTY = {
   video_url: '',
   format: 'mp4',
   featured: false,
-  category_id: 0,
 };
 
 const PAGE = 40;
 
-export default function MediaPanel({ refreshKey, categories = [], editing, setEditing, onSaved, onError, onAddEpisode }) {
+export default function MediaPanel({ refreshKey, editing, setEditing, onSaved, onError, onAddEpisode }) {
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
@@ -66,7 +65,6 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
         genres: form.genres,
         release_year: Number(form.release_year) || 0,
         rating: Number(form.rating) || 0,
-        category_id: Number(form.category_id) || 0,
       });
       setForm(EMPTY);
       setEditing(null);
@@ -140,7 +138,7 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
             <label className="label">Type</label>
             <select className="input" value={form.type} onChange={(e) => update({ type: e.target.value })}>
               <option value="movie">Movie</option>
-              <option value="series">Series</option>
+              <option value="anime">Anime</option>
               <option value="live">Live TV</option>
             </select>
           </div>
@@ -180,23 +178,6 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
         </div>
 
         <div>
-          <label className="label">Category</label>
-          <select
-            className="input"
-            value={form.category_id || 0}
-            onChange={(e) => update({ category_id: Number(e.target.value) })}
-          >
-            <option value={0}>No category</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-                {category.is_premium ? ' (premium)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
           <label className="label">Cover URL (2:3 poster)</label>
           <input className="input" value={form.cover_url} onChange={(e) => update({ cover_url: e.target.value })} />
         </div>
@@ -219,9 +200,9 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
           />
         </div>
 
-        {form.type === 'series' ? (
+        {form.type === 'anime' ? (
           <p className="rounded-lg border border-edge bg-ink/60 p-3 text-xs text-zinc-400">
-            Series stream from episodes. Save the series, then attach episodes in the <b>Videos</b> tab.
+            Anime streams from episodes. Save the title, then attach episodes in the <b>Episodes</b> tab.
           </p>
         ) : (
           <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3">
@@ -266,7 +247,7 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
           <select className="input w-auto py-1.5 text-xs" value={type} onChange={(e) => { setType(e.target.value); setOffset(0); }}>
             <option value="">All types</option>
             <option value="movie">Movies</option>
-            <option value="series">Series</option>
+            <option value="anime">Anime</option>
             <option value="live">Live TV</option>
           </select>
           <input
@@ -303,7 +284,7 @@ export default function MediaPanel({ refreshKey, categories = [], editing, setEd
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
-                {m.type === 'series' ? (
+                {m.type === 'anime' ? (
                   <button className="btn-ghost px-2 py-1 text-xs" onClick={() => onAddEpisode(m)}>
                     Episodes
                   </button>

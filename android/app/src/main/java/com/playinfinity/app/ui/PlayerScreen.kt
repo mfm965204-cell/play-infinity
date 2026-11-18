@@ -12,22 +12,16 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
@@ -37,7 +31,6 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -46,7 +39,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -80,11 +72,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.playinfinity.app.data.Api
-import com.playinfinity.app.data.MediaItem
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -97,7 +85,7 @@ fun PlayerScreen(
     live: Boolean,
     onBack: () -> Unit,
     onOpenSuggested: (Int) -> Unit,
-    onProgress: (Int) -> Unit = {},
+    onPosition: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val rootView = LocalView.current
@@ -116,10 +104,8 @@ fun PlayerScreen(
     var showSpeedMenu by remember { mutableStateOf(false) }
     var showTrackMenu by remember { mutableStateOf(false) }
     var audioOptions by remember { mutableStateOf<List<Pair<String, TrackGroup>>>(emptyList()) }
-    var subtitlesOff by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var brightness by remember { mutableFloatStateOf(1f) }
-    var suggestions by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -144,8 +130,7 @@ fun PlayerScreen(
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, rootView)
             if (fullscreen) {
-                controller.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 controller.hide(WindowInsetsCompat.Type.systemBars())
             } else {
                 controller.show(WindowInsetsCompat.Type.systemBars())
@@ -153,8 +138,7 @@ fun PlayerScreen(
         }
         onDispose {
             if (window != null) {
-                WindowCompat.getInsetsController(window, rootView)
-                    .show(WindowInsetsCompat.Type.systemBars())
+                WindowCompat.getInsetsController(window, rootView).show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -173,18 +157,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(mediaId) {
-        try {
-            val types = if (live) listOf("live") else listOf("movie", "series")
-            val all = withContext(Dispatchers.IO) {
-                types.flatMap { type -> Api.service.media(type = type, limit = 12).items }
-            }
-            suggestions = all.filter { it.id != mediaId }.take(18)
-        } catch (_: Exception) {
-            suggestions = emptyList()
-        }
-    }
-
     LaunchedEffect(player) {
         while (true) {
             isPlaying = player.isPlaying
@@ -195,8 +167,7 @@ fun PlayerScreen(
                 .filter { it.type == C.TRACK_TYPE_AUDIO }
                 .mapIndexed { index, group ->
                     val fmt = group.getTrackFormat(0)
-                    val label = fmt.label ?: fmt.language ?: "Audio ${index + 1}"
-                    label to group.mediaTrackGroup
+                    fmt.label ?: fmt.language ?: "Audio ${index + 1}" to group.mediaTrackGroup
                 }
             delay(500)
         }
@@ -206,8 +177,7 @@ fun PlayerScreen(
         if (mediaId <= 0 || url.isBlank()) return@LaunchedEffect
         while (true) {
             delay(5000)
-            val seconds = (player.currentPosition / 1000).toInt()
-            if (seconds > 5 && player.isPlaying) onProgress(seconds)
+            if (player.isPlaying) onPosition(player.currentPosition)
         }
     }
 
@@ -296,7 +266,6 @@ fun PlayerScreen(
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                     )
-                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = errorMessage ?: "",
                         style = MaterialTheme.typography.labelSmall,
@@ -307,16 +276,14 @@ fun PlayerScreen(
 
             if (controlsVisible) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.65f),
-                                0.35f to Color.Transparent,
-                                0.7f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.75f),
-                            ),
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.65f),
+                            0.35f to Color.Transparent,
+                            0.7f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.75f),
                         ),
+                    ),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
@@ -335,10 +302,7 @@ fun PlayerScreen(
                             modifier = Modifier.weight(1f),
                         )
                         if (live) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(end = 10.dp),
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 10.dp)) {
                                 Box(Modifier.size(7.dp).background(Brand, CircleShape))
                                 Spacer(Modifier.width(5.dp))
                                 Text(
@@ -356,9 +320,7 @@ fun PlayerScreen(
                             .align(Alignment.Center)
                             .size(64.dp)
                             .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-                            .clickable {
-                                if (player.isPlaying) player.pause() else player.play()
-                            },
+                            .clickable { if (player.isPlaying) player.pause() else player.play() },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -423,7 +385,7 @@ fun PlayerScreen(
 
                             Box {
                                 IconButton(onClick = { showTrackMenu = true }) {
-                                    Icon(Icons.Filled.Audiotrack, contentDescription = "Audio and subtitles", tint = Color.White)
+                                    Icon(Icons.Filled.Audiotrack, contentDescription = "Audio", tint = Color.White)
                                 }
                                 DropdownMenu(expanded = showTrackMenu, onDismissRequest = { showTrackMenu = false }) {
                                     if (audioOptions.isEmpty()) {
@@ -440,16 +402,6 @@ fun PlayerScreen(
                                             },
                                         )
                                     }
-                                    DropdownMenuItem(
-                                        text = { Text(if (subtitlesOff) "Subtitles on" else "Subtitles off") },
-                                        onClick = {
-                                            subtitlesOff = !subtitlesOff
-                                            val params = player.trackSelectionParameters.buildUpon()
-                                            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, subtitlesOff)
-                                            player.trackSelectionParameters = params.build()
-                                            showTrackMenu = false
-                                        },
-                                    )
                                 }
                             }
 
@@ -498,40 +450,31 @@ fun PlayerScreen(
         }
 
         if (!fullscreen) {
-            Column(modifier = Modifier.weight(1f)) {
-                Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = if (live) "Live channel · tap the full-screen icon for a bigger picture" else "Playing now",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
+            Column(modifier = Modifier.padding(18.dp)) {
                 Text(
-                    text = "More like this",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    items(suggestions, key = { it.id }) { item ->
-                        MediaCard(item = item, onClick = { onOpenSuggested(item.id) }, width = 104.dp)
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    text = if (live) "Live channel" else "Playing now · tap the video for controls",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    IconButton(onClick = { fullscreen = true }) {
+                        Icon(Icons.Filled.Fullscreen, contentDescription = "Full screen", tint = Color.White)
                     }
+                    Text(
+                        text = "Go full screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
                 }
             }
         }
@@ -544,11 +487,7 @@ private fun formatTime(millis: Long): String {
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%d:%02d".format(minutes, seconds)
-    }
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
 private fun Context.findActivity(): Activity? {

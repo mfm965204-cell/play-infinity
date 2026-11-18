@@ -38,7 +38,6 @@ export default function SettingsPanel({ settings, onSaved, onError, onSignOut })
       maintenance_message: settings.maintenance_message || '',
       update_message: settings.update_message || '',
       app_version: settings.app_version || '1.0.0',
-      premium_enabled: settings.premium_enabled === '1',
       developer_name: settings.developer_name || 'Mohammad Fahad Mir',
       developer_portfolio: settings.developer_portfolio || 'https://portfolio.mfm965204.workers.dev/',
       developer_instagram: settings.developer_instagram || 'https://www.instagram.com/fahad0101r',
@@ -95,12 +94,6 @@ export default function SettingsPanel({ settings, onSaved, onError, onSignOut })
 
         <div className="divide-y divide-edge">
           <Toggle
-            label="Enable premium system"
-            hint="Turns on the license gate for premium categories."
-            checked={Boolean(form.premium_enabled)}
-            onChange={(v) => update({ premium_enabled: v })}
-          />
-          <Toggle
             label="Maintenance mode"
             hint="Blocks the whole app with a full-screen notice."
             checked={Boolean(form.maintenance)}
@@ -111,12 +104,6 @@ export default function SettingsPanel({ settings, onSaved, onError, onSignOut })
             hint="Hides the Live TV row and tab when off."
             checked={Boolean(form.live_tv_enabled)}
             onChange={(v) => update({ live_tv_enabled: v })}
-          />
-          <Toggle
-            label="Downloads enabled"
-            hint="Toggles the offline download button."
-            checked={Boolean(form.downloads_enabled)}
-            onChange={(v) => update({ downloads_enabled: v })}
           />
           <Toggle
             label="App update required"

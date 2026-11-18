@@ -6,9 +6,7 @@ import Overview from './components/Overview';
 import MediaPanel from './components/MediaPanel';
 import EpisodePanel from './components/EpisodePanel';
 import LiveTvPanel from './components/LiveTvPanel';
-import CategoriesPanel from './components/CategoriesPanel';
-import LicensesPanel from './components/LicensesPanel';
-import RequestsPanel from './components/RequestsPanel';
+import DevicesPanel from './components/DevicesPanel';
 import SettingsPanel from './components/SettingsPanel';
 import LegalPanel from './components/LegalPanel';
 import LegalPage from './components/LegalPage';
@@ -19,10 +17,9 @@ export default function App() {
   const [route, setRoute] = useState(window.location.pathname);
   const [authed, setAuthed] = useState(Boolean(getToken()));
   const [tab, setTab] = useState('overview');
-  const [stats, setStats] = useState({ counts: {}, episodes: 0, sources: 0, live_categories: {} });
+  const [stats, setStats] = useState({ counts: {} });
   const [activity, setActivity] = useState([]);
   const [recent, setRecent] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -46,18 +43,16 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const [statsRes, activityRes, settingsRes, recentRes, categoriesRes] = await Promise.all([
+      const [statsRes, activityRes, settingsRes, recentRes] = await Promise.all([
         api.stats(),
         api.activity(),
         api.getSettings(),
         api.listMedia({ limit: 12 }),
-        api.categories(),
       ]);
       setStats(statsRes || { counts: {} });
       setActivity(activityRes.items || []);
       setSettings(settingsRes || {});
       setRecent(recentRes.items || []);
-      setCategories(categoriesRes.items || []);
       setAuthed(true);
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -118,12 +113,10 @@ export default function App() {
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 border-b border-white/10 bg-black/40 backdrop-blur-xl">
           <div className="flex items-center gap-3 px-5 py-3">
-            <h1 className="text-sm font-bold">
-              {NAV.find((item) => item.id === tab)?.label || 'Studio'}
-            </h1>
+            <h1 className="text-sm font-bold">{NAV.find((item) => item.id === tab)?.label || 'Studio'}</h1>
             <div className="ml-auto flex items-center gap-2">
               <span className="hidden text-xs text-zinc-500 sm:inline">
-                {stats.users || 0} users · {stats.active_licenses || 0} active licenses
+                {stats.devices || 0} devices · {stats.banned_devices || 0} banned
               </span>
               <button className="btn-ghost lg:hidden" onClick={refresh}>
                 Refresh
@@ -180,7 +173,6 @@ export default function App() {
           {tab === 'media' ? (
             <MediaPanel
               refreshKey={refreshKey}
-              categories={categories}
               editing={editing}
               setEditing={setEditing}
               onSaved={refresh}
@@ -196,7 +188,6 @@ export default function App() {
           {tab === 'livetv' ? (
             <LiveTvPanel
               refreshKey={refreshKey}
-              categories={categories}
               onSaved={refresh}
               onError={setError}
               onEdit={(channel) => {
@@ -210,16 +201,8 @@ export default function App() {
             <EpisodePanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
           ) : null}
 
-          {tab === 'categories' ? (
-            <CategoriesPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
-          ) : null}
-
-          {tab === 'licenses' ? (
-            <LicensesPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
-          ) : null}
-
-          {tab === 'requests' ? (
-            <RequestsPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
+          {tab === 'devices' ? (
+            <DevicesPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
           ) : null}
 
           {tab === 'settings' ? (

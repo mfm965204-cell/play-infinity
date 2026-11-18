@@ -6,35 +6,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,35 +45,17 @@ import com.playinfinity.app.data.MediaItem
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("home", "Home", Icons.Filled.Home),
+    Tab("movies", "Movies", Icons.Filled.Movie),
+    Tab("anime", "Anime", Icons.Filled.Star),
+    Tab("live", "Live TV", Icons.Filled.LiveTv),
     Tab("search", "Search", Icons.Filled.Search),
-    Tab("mylist", "My List", Icons.Filled.Favorite),
     Tab("settings", "Settings", Icons.Filled.Settings),
 )
 
 @Composable
 fun AppRoot(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    val myList by viewModel.myList.collectAsState()
-    val premiumUnlocked by viewModel.premiumUnlocked.collectAsState()
     val navController = rememberNavController()
-
-    var gateSkipped by remember { mutableStateOf(false) }
-    var showLicenseDialog by remember { mutableStateOf(false) }
-    var licenseBusy by remember { mutableStateOf(false) }
-    var licenseMessage by remember { mutableStateOf<String?>(null) }
-    var licenseSuccess by remember { mutableStateOf(false) }
-
-    val verifyLicense: (String) -> Unit = { key ->
-        licenseBusy = true
-        licenseMessage = null
-        viewModel.verifyLicense(key) { ok, message ->
-            licenseBusy = false
-            licenseSuccess = ok
-            licenseMessage = message
-            if (ok) showLicenseDialog = false
-        }
-    }
 
     val deepLinkId by DeepLink.movieId
     LaunchedEffect(deepLinkId, state.loading) {
@@ -93,44 +67,40 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
     }
 
     when {
-        state.loading -> SkeletonHome()
+        state.loading -> SkeletonGrid(rows = 4)
+
+        state.banned -> BlockingScreen(
+            title = "Device blocked",
+            message = "This device has been blocked by the administrator. If you think that is a mistake, " +
+                "contact support with this device id: ${viewModel.deviceId}",
+            actionLabel = "Check again",
+            onAction = { viewModel.load() },
+        )
 
         state.settings.isMaintenance -> BlockingScreen(
             title = "We'll be back soon",
-            message = state.settings.maintenanceMessage.ifBlank {
-                "Play Infinity is down for maintenance."
-            },
+            message = state.settings.maintenanceMessage.ifBlank { "Play Infinity is down for maintenance." },
             actionLabel = "Try again",
             onAction = { viewModel.load() },
         )
 
         state.settings.isUpdateRequired -> BlockingScreen(
             title = "Update required",
-            message = state.settings.updateMessage.ifBlank {
-                "A newer version of Play Infinity is available."
-            },
+            message = state.settings.updateMessage.ifBlank { "A newer version of Play Infinity is available." },
             actionLabel = "Check again",
             onAction = { viewModel.load() },
         )
 
-        state.error != null && state.media.isEmpty() -> BlockingScreen(
+        state.error != null && state.movies.isEmpty() && state.live.isEmpty() -> BlockingScreen(
             title = "Can't reach Play Infinity",
             message = state.error ?: "Check your connection and try again.",
             actionLabel = "Retry",
             onAction = { viewModel.load() },
         )
 
-        state.settings.isPremiumEnabled && !premiumUnlocked && !gateSkipped -> LicenseScreen(
-            busy = licenseBusy,
-            message = licenseMessage,
-            success = licenseSuccess,
-            onVerify = verifyLicense,
-            onSkip = { gateSkipped = true },
-        )
-
         else -> {
             val backStackEntry by navController.currentBackStackEntryAsState()
-            val route = backStackEntry?.destination?.route ?: "home"
+            val route = backStackEntry?.destination?.route ?: "movies"
             val showBar = tabs.any { it.route == route }
 
             Scaffold(
@@ -143,57 +113,54 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
             ) { padding ->
                 NavHost(
                     navController = navController,
-                    startDestination = "home",
+                    startDestination = "movies",
                     modifier = Modifier.padding(padding),
                 ) {
-                    composable("home") {
-                        HomeScreen(
+                    composable("movies") {
+                        MoviesScreen(
                             state = state,
-                            premiumUnlocked = premiumUnlocked,
-                            onOpen = { id, locked ->
-                                if (locked) {
-                                    licenseMessage = null
-                                    showLicenseDialog = true
-                                } else {
-                                    navController.navigate("detail/$id")
-                                }
-                            },
+                            onOpen = { id -> navController.navigate("detail/$id") },
                             onPlay = { item ->
-                                if (item.isSeries) {
-                                    navController.navigate("detail/${item.id}")
-                                } else {
-                                    navController.navigate(playerRoute(item))
-                                }
+                                if (item.isAnime) navController.navigate("detail/${item.id}")
+                                else navController.navigate(playerRoute(item))
                             },
+                            onSettings = { navController.navigate("settings") },
+                        )
+                    }
+
+                    composable("anime") {
+                        AnimeScreen(
+                            state = state,
+                            onOpen = { id -> navController.navigate("detail/$id") },
+                            onPlay = { item -> navController.navigate("detail/${item.id}") },
+                            onSettings = { navController.navigate("settings") },
+                        )
+                    }
+
+                    composable("live") {
+                        LiveTvScreen(
+                            state = state,
+                            onOpen = { id -> navController.navigate("detail/$id") },
+                            onSettings = { navController.navigate("settings") },
                         )
                     }
 
                     composable("search") {
                         SearchScreen(
                             state = state,
-                            onQuery = viewModel::search,
+                            onSearch = viewModel::search,
                             onOpen = { id -> navController.navigate("detail/$id") },
-                            onRequest = { title, done -> viewModel.submitRequest(title, done) },
-                        )
-                    }
-
-                    composable("mylist") {
-                        MyListScreen(
-                            state = state,
-                            myList = myList,
-                            onOpen = { id -> navController.navigate("detail/$id") },
+                            onSettings = { navController.navigate("settings") },
                         )
                     }
 
                     composable("settings") {
                         SettingsScreen(
                             settings = state.settings,
-                            premiumUnlocked = premiumUnlocked,
+                            deviceId = viewModel.deviceId,
+                            banned = state.banned,
+                            lastChecked = state.lastChecked,
                             onRefresh = { viewModel.load() },
-                            onEnterLicense = {
-                                licenseMessage = null
-                                showLicenseDialog = true
-                            },
                         )
                     }
 
@@ -204,15 +171,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         val id = entry.arguments?.getInt("id") ?: 0
                         DetailScreen(
                             mediaId = id,
-                            downloadsEnabled = state.settings.isDownloadsEnabled,
-                            premiumEnabled = state.settings.isPremiumEnabled,
-                            premiumUnlocked = premiumUnlocked,
-                            inMyList = myList.contains(id),
-                            onToggleMyList = { viewModel.toggleMyList(id) },
-                            onRequireLicense = {
-                                licenseMessage = null
-                                showLicenseDialog = true
-                            },
+                            deviceId = viewModel.deviceId,
                             onBack = { navController.popBackStack() },
                             onPlay = { url, format, title, live ->
                                 navController.navigate(
@@ -241,60 +200,13 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                             title = entry.arguments?.getString("title") ?: "",
                             live = entry.arguments?.getBoolean("live") ?: false,
                             onBack = { navController.popBackStack() },
-                            onOpenSuggested = { suggestedId ->
-                                navController.navigate("detail/$suggestedId")
-                            },
-                            onProgress = { seconds ->
-                                viewModel.reportProgress(mediaId, seconds)
-                            },
+                            onOpenSuggested = { suggestedId -> navController.navigate("detail/$suggestedId") },
+                            onPosition = { positionMs -> viewModel.savePosition(mediaId, positionMs) },
                         )
                     }
                 }
             }
         }
-    }
-
-    if (showLicenseDialog) {
-        AlertDialog(
-            onDismissRequest = { showLicenseDialog = false },
-            title = { Text("Premium content") },
-            text = {
-                Column {
-                    Text(
-                        text = "Enter a license key to unlock premium categories on this device.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    var key by remember { mutableStateOf("") }
-                    OutlinedTextField(
-                        value = key,
-                        onValueChange = { key = it },
-                        singleLine = true,
-                        label = { Text("License key") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (licenseMessage != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = licenseMessage ?: "",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (licenseSuccess) Color(0xFF34D399) else Color(0xFFF87171),
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = { verifyLicense(key) },
-                        enabled = !licenseBusy,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (licenseBusy) "Checking…" else "Unlock")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showLicenseDialog = false }) { Text("Close") }
-            },
-        )
     }
 }
 
@@ -304,17 +216,14 @@ private fun playerRoute(item: MediaItem): String =
 
 @Composable
 private fun GlassBottomBar(current: String, navController: NavHostController) {
-    NavigationBar(
-        containerColor = Panel.copy(alpha = 0.92f),
-        tonalElevation = 0.dp,
-    ) {
+    NavigationBar(containerColor = Panel.copy(alpha = 0.94f), tonalElevation = 0.dp) {
         tabs.forEach { tab ->
             NavigationBarItem(
                 selected = current == tab.route,
                 onClick = {
                     if (current != tab.route) {
                         navController.navigate(tab.route) {
-                            popUpTo("home") { saveState = true }
+                            popUpTo("movies") { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -339,13 +248,8 @@ private fun BlockingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = "▶",
-                style = MaterialTheme.typography.displaySmall,
-                color = Brand,
-                fontWeight = FontWeight.Black,
-            )
-            Spacer(Modifier.height(18.dp))
+            Text(text = "▶", style = MaterialTheme.typography.displaySmall, color = Brand, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(16.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
@@ -359,7 +263,7 @@ private fun BlockingScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(22.dp))
             Button(onClick = onAction) { Text(actionLabel) }
         }
     }

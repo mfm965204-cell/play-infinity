@@ -1,17 +1,15 @@
 const NAV = [
   { id: 'overview', label: 'Dashboard', icon: '◎' },
-  { id: 'media', label: 'Media', icon: '▤' },
+  { id: 'media', label: 'Movies & Anime', icon: '▤' },
   { id: 'livetv', label: 'Live TV', icon: '◉' },
-  { id: 'episodes', label: 'Videos', icon: '▷' },
-  { id: 'categories', label: 'Categories', icon: '❏' },
-  { id: 'licenses', label: 'Licenses', icon: '⚿' },
-  { id: 'requests', label: 'Requests', icon: '✉' },
+  { id: 'episodes', label: 'Episodes', icon: '▷' },
+  { id: 'devices', label: 'Devices', icon: '▣' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
   { id: 'legal', label: 'Legal', icon: '§' },
 ];
 
 export default function Sidebar({ tab, onTab, stats, onSignOut, onRefresh, loading }) {
-  const pending = stats?.pending_requests || 0;
+  const banned = stats?.banned_devices || 0;
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-white/10 bg-black/40 px-3 py-4 backdrop-blur-xl lg:flex">
@@ -32,8 +30,8 @@ export default function Sidebar({ tab, onTab, stats, onSignOut, onRefresh, loadi
           >
             <span className="w-4 text-center text-base opacity-70">{item.icon}</span>
             <span className="flex-1 text-left">{item.label}</span>
-            {item.id === 'requests' && pending ? (
-              <span className="rounded-full bg-brand px-1.5 text-[10px] font-bold text-white">{pending}</span>
+            {item.id === 'devices' && banned ? (
+              <span className="rounded-full bg-rose-600 px-1.5 text-[10px] font-bold text-white">{banned}</span>
             ) : null}
           </button>
         ))}
@@ -46,9 +44,7 @@ export default function Sidebar({ tab, onTab, stats, onSignOut, onRefresh, loadi
         <button className="btn-ghost w-full" onClick={onSignOut}>
           Sign out
         </button>
-        <p className="pt-2 text-[10px] leading-relaxed text-zinc-600">
-          Developed by Mohammad Fahad Mir
-        </p>
+        <p className="pt-2 text-[10px] leading-relaxed text-zinc-600">Developed by Mohammad Fahad Mir</p>
       </div>
     </aside>
   );

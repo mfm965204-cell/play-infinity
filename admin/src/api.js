@@ -52,16 +52,10 @@ export const api = {
   activity: () => request('/api/admin/activity', { auth: true }),
   exportAll: () => request('/api/admin/export', { auth: true }),
 
-  categories: () => request('/api/admin/categories', { auth: true }),
-  saveCategory: (category) => request('/api/admin/categories', { method: 'POST', body: category, auth: true }),
-  deleteCategory: (id) => request(`/api/admin/categories/${id}`, { method: 'DELETE', auth: true }),
-
-  licenses: () => request('/api/admin/licenses', { auth: true }),
-  createLicense: (payload) => request('/api/admin/licenses', { method: 'POST', body: payload, auth: true }),
-  deleteLicense: (id) => request(`/api/admin/licenses/${id}`, { method: 'DELETE', auth: true }),
-
-  requests: () => request('/api/admin/requests', { auth: true }),
-  fulfillRequest: (id) => request(`/api/admin/requests/${id}/fulfill`, { method: 'POST', auth: true }),
+  devices: () => request('/api/admin/devices', { auth: true }),
+  banDevice: (id, banned) =>
+    request(`/api/admin/devices/${id}/ban`, { method: 'POST', body: { banned }, auth: true }),
+  deleteDevice: (id) => request(`/api/admin/devices/${id}`, { method: 'DELETE', auth: true }),
 
   listMedia: (params) => request(`/api/admin/media${query(params)}`, { auth: true }),
   saveMedia: (media) => request('/api/admin/media', { method: 'POST', body: media, auth: true }),

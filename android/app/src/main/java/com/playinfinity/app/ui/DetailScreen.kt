@@ -1,10 +1,5 @@
 package com.playinfinity.app.ui
 
-import android.app.DownloadManager
-import android.content.Context
-import android.net.Uri
-import android.os.Environment
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,20 +17,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,12 +51,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DetailScreen(
     mediaId: Int,
-    downloadsEnabled: Boolean,
-    premiumEnabled: Boolean = false,
-    premiumUnlocked: Boolean = true,
-    inMyList: Boolean,
-    onToggleMyList: () -> Unit,
-    onRequireLicense: () -> Unit = {},
+    deviceId: String,
     onBack: () -> Unit,
     onPlay: (url: String, format: String, title: String, live: Boolean) -> Unit,
 ) {
@@ -72,13 +59,16 @@ fun DetailScreen(
     var detail by remember { mutableStateOf<MediaDetail?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var openSeason by remember { mutableStateOf(1) }
+    var expanded by remember { mutableStateOf(false) }
+    var season by remember { mutableStateOf(1) }
+    var seasonMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(mediaId) {
         loading = true
         error = null
         try {
-            detail = withContext(Dispatchers.IO) { Api.service.detail(mediaId) }
+            detail = withContext(Dispatchers.IO) { Api.service.detail(deviceId, mediaId) }
+            detail?.episodes?.firstOrNull()?.let { season = it.season }
         } catch (e: Exception) {
             error = e.message ?: "Could not load this title."
         } finally {
@@ -88,56 +78,39 @@ fun DetailScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Ink)) {
         val current = detail
-        if (loading) {
-            CircularProgressIndicator(color = Brand, modifier = Modifier.align(Alignment.Center))
-        } else if (current == null) {
-            Column(
+        when {
+            loading -> CircularProgressIndicator(color = Brand, modifier = Modifier.align(Alignment.Center))
+
+            current == null -> Column(
                 modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(text = error ?: "Not found", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 Button(onClick = onBack) { Text("Go back") }
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+
+            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item(key = "backdrop") {
-                    Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().height(280.dp)) {
                         PosterImage(
                             url = current.backdropUrl.ifBlank { current.coverUrl },
                             modifier = Modifier.fillMaxSize(),
                             corner = 0.dp,
                         )
                         Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        0.4f to Color.Transparent,
-                                        1f to Ink,
-                                    ),
-                                ),
+                            modifier = Modifier.fillMaxSize().background(
+                                Brush.verticalGradient(0.4f to Color.Transparent, 1f to Ink),
+                            ),
                         )
                         Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
                             IconButton(onClick = onBack) {
                                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                             }
                             Spacer(Modifier.weight(1f))
-                            IconButton(
-                                onClick = {
-                                    val link = "${Api.BASE_URL}movie/${current.id}"
-                                    try {
-                                        val clipboard =
-                                            context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                        clipboard.setPrimaryClip(
-                                            android.content.ClipData.newPlainText("Play Infinity", link),
-                                        )
-                                        Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, link, Toast.LENGTH_LONG).show()
-                                    }
-                                },
-                            ) {
+                            IconButton(onClick = {
+                                copyShareLink(context, current.id)
+                            }) {
                                 Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
                             }
                         }
@@ -145,7 +118,7 @@ fun DetailScreen(
                 }
 
                 item(key = "head") {
-                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Column(modifier = Modifier.padding(horizontal = 18.dp)) {
                         Text(
                             text = current.title,
                             style = MaterialTheme.typography.headlineSmall,
@@ -165,105 +138,89 @@ fun DetailScreen(
                             )
                         }
 
-                        val locked = premiumEnabled && !premiumUnlocked && current.category?.isPremium == true
-
-                        Spacer(Modifier.height(16.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            val firstEpisode: Episode? = current.episodes.firstOrNull()
-                            Button(
-                                onClick = {
-                                    if (locked) {
-                                        onRequireLicense()
-                                        return@Button
-                                    }
-                                    when {
-                                        current.type == "series" && firstEpisode != null ->
-                                            onPlay(firstEpisode.videoUrl, firstEpisode.format, firstEpisode.title, false)
-                                        current.videoUrl.isNotBlank() ->
-                                            onPlay(current.videoUrl, current.format, current.title, current.type == "live")
-                                    }
-                                },
-                                enabled = locked || current.videoUrl.isNotBlank() || current.episodes.isNotEmpty(),
-                            ) {
-                                Icon(
-                                    imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.PlayArrow,
-                                    contentDescription = null,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (locked) "Unlock" else "Play", fontWeight = FontWeight.SemiBold)
-                            }
-
-                            OutlinedButton(onClick = onToggleMyList) {
-                                Icon(
-                                    imageVector = if (inMyList) Icons.Filled.Check else Icons.Filled.FavoriteBorder,
-                                    contentDescription = null,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (inMyList) "Saved" else "My List")
-                            }
-
-                            if (downloadsEnabled && current.type != "series") {
-                                OutlinedButton(
-                                    onClick = { enqueueDownload(context, current) },
-                                    enabled = current.videoUrl.isNotBlank(),
-                                ) {
-                                    Icon(Icons.Filled.Download, contentDescription = null)
+                        Spacer(Modifier.height(14.dp))
+                        val firstEpisode = current.episodes.firstOrNull()
+                        Button(
+                            onClick = {
+                                when {
+                                    current.type == "anime" && firstEpisode != null ->
+                                        onPlay(firstEpisode.videoUrl, firstEpisode.format, firstEpisode.title, false)
+                                    current.videoUrl.isNotBlank() ->
+                                        onPlay(current.videoUrl, current.format, current.title, current.type == "live")
                                 }
-                            }
+                            },
+                            enabled = current.videoUrl.isNotBlank() || current.episodes.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (current.type == "anime") "Play EP 1" else "Play", fontWeight = FontWeight.SemiBold)
                         }
 
                         if (current.description.isNotBlank()) {
-                            Spacer(Modifier.height(18.dp))
+                            Spacer(Modifier.height(16.dp))
                             Text(
                                 text = current.description,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = if (expanded) 40 else 3,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                            TextButton(onClick = { expanded = !expanded }) {
+                                Text(if (expanded) "Show less" else "More")
+                            }
                         }
-                        Spacer(Modifier.height(22.dp))
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
 
                 if (current.episodes.isNotEmpty()) {
                     val seasons = current.episodes.map { it.season }.distinct().sorted()
-                    items(seasons.size, key = { "season-${seasons[it]}" }) { index ->
-                        val season = seasons[index]
-                        val expanded = openSeason == season
-                        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { openSeason = if (expanded) -1 else season }
-                                    .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "Season $season",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = if (expanded) "▲" else "▼",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (expanded) {
-                                current.episodes
-                                    .filter { it.season == season }
-                                    .sortedBy { it.episodeNumber }
-                                    .forEach { episode ->
-                                        EpisodeRow(episode = episode, onPlay = {
-                                            onPlay(episode.videoUrl, episode.format, episode.title, false)
-                                        })
+                    item(key = "season-picker") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Episodes",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Box {
+                                TextButton(onClick = { seasonMenu = true }) {
+                                    Text("Season $season ▾")
+                                }
+                                DropdownMenu(expanded = seasonMenu, onDismissRequest = { seasonMenu = false }) {
+                                    seasons.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text("Season $option") },
+                                            onClick = {
+                                                season = option
+                                                seasonMenu = false
+                                            },
+                                        )
                                     }
+                                }
                             }
-                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+
+                    items(
+                        count = current.episodes.count { it.season == season },
+                        key = { index ->
+                            current.episodes.filter { it.season == season }.sortedBy { it.episodeNumber }[index].id
+                        },
+                    ) { index ->
+                        val episode = current.episodes
+                            .filter { it.season == season }
+                            .sortedBy { it.episodeNumber }[index]
+                        EpisodeRow(episode = episode) {
+                            onPlay(episode.videoUrl, episode.format, episode.title, false)
                         }
                     }
                 }
 
-                item(key = "footer") { Spacer(Modifier.height(30.dp)) }
+                item(key = "footer") { Spacer(Modifier.height(28.dp)) }
             }
         }
     }
@@ -275,13 +232,11 @@ private fun EpisodeRow(episode: Episode, onPlay: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onPlay() }
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(Edge, RoundedCornerShape(10.dp)),
+            modifier = Modifier.size(42.dp).background(Edge, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White)
@@ -300,26 +255,16 @@ private fun EpisodeRow(episode: Episode, onPlay: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Icon(Icons.Filled.Favorite, contentDescription = null, tint = Color.Transparent)
     }
 }
 
-private fun enqueueDownload(context: Context, detail: MediaDetail) {
+private fun copyShareLink(context: android.content.Context, id: Int) {
+    val link = "${Api.BASE_URL}movie/$id"
     try {
-        val extension = if (detail.format == "mp4") "mp4" else "m3u8"
-        val safeName = detail.title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "playinfinity" }
-        val request = DownloadManager.Request(Uri.parse(detail.videoUrl))
-            .setTitle(detail.title)
-            .setDescription("Play Infinity download")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS,
-                "$safeName.$extension",
-            )
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.enqueue(request)
-        Toast.makeText(context, "Download queued", Toast.LENGTH_SHORT).show()
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Play Infinity", link))
+        android.widget.Toast.makeText(context, "Link copied", android.widget.Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
-        Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context, link, android.widget.Toast.LENGTH_LONG).show()
     }
 }

@@ -1,8 +1,8 @@
-function Stat({ label, value, hint }) {
+function Stat({ label, value, hint, tone }) {
   return (
     <div className="card">
       <p className="text-xs uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="mt-2 text-3xl font-extrabold">{value}</p>
+      <p className={`mt-2 text-3xl font-extrabold ${tone || ''}`}>{value}</p>
       {hint ? <p className="mt-1 text-xs text-zinc-500">{hint}</p> : null}
     </div>
   );
@@ -14,30 +14,19 @@ function onOff(value) {
 
 export default function Overview({ stats, activity, recent, settings, onGo, onExport }) {
   const counts = stats.counts || {};
-  const categories = Object.entries(stats.live_categories || {}).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total users" value={stats.users || 0} hint="Devices reporting playback" />
-        <Stat
-          label="Active licenses"
-          value={stats.active_licenses || 0}
-          hint={`${stats.licenses || 0} issued in total`}
-        />
-        <Stat
-          label="Pending requests"
-          value={stats.pending_requests || 0}
-          hint="Waiting in the inbox"
-        />
-        <Stat label="API requests" value={stats.api_calls || 0} hint="Counted by the rate limiter" />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Movies" value={counts.movie || 0} />
-        <Stat label="Series" value={counts.series || 0} hint={`${stats.episodes || 0} episodes`} />
+        <Stat label="Anime" value={counts.anime || 0} hint={`${stats.episodes || 0} episodes`} />
         <Stat label="Live channels" value={counts.live || 0} hint={`${stats.sources || 0} source(s)`} />
-        <Stat label="App version" value={settings.app_version || '1.0.0'} hint="Published to the app" />
+        <Stat
+          label="Devices"
+          value={stats.devices || 0}
+          hint={`${stats.banned_devices || 0} banned`}
+          tone={stats.banned_devices ? 'text-rose-400' : ''}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -57,9 +46,8 @@ export default function Overview({ stats, activity, recent, settings, onGo, onEx
             {[
               ['Maintenance mode', onOff(settings.maintenance), settings.maintenance === '1'],
               ['Live TV', onOff(settings.live_tv_enabled), false],
-              ['Downloads', onOff(settings.downloads_enabled), false],
               ['Force update', onOff(settings.update_required), settings.update_required === '1'],
-              ['Premium system', onOff(settings.premium_enabled), false],
+              ['App version', settings.app_version || '2.0.0', false],
             ].map(([label, value, alarm]) => (
               <li key={label} className="flex items-center justify-between py-3">
                 <span className="text-zinc-300">{label}</span>
@@ -77,34 +65,24 @@ export default function Overview({ stats, activity, recent, settings, onGo, onEx
             <button className="btn-ghost" onClick={() => onGo('livetv')}>
               Import live channels
             </button>
-            <button className="btn-ghost" onClick={() => onGo('episodes')}>
-              Add episodes
+            <button className="btn-ghost" onClick={() => onGo('devices')}>
+              Manage devices
             </button>
           </div>
         </div>
 
         <div className="card">
-          <h2 className="mb-3 text-base font-bold">Live TV mix</h2>
-          {categories.length ? (
-            <ul className="space-y-2 text-sm">
-              {categories.slice(0, 8).map(([name, n]) => (
-                <li key={name}>
-                  <div className="mb-1 flex justify-between text-xs text-zinc-400">
-                    <span>{name}</span>
-                    <span>{n}</span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-brand"
-                      style={{ width: `${Math.min(100, (n / (counts.live || 1)) * 100)}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-zinc-500">No live channels yet.</p>
-          )}
+          <h2 className="mb-3 text-base font-bold">Device register</h2>
+          <p className="text-sm text-zinc-400">
+            {stats.devices || 0} devices have opened the app, {stats.banned_devices || 0} of them banned.
+          </p>
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            A device registers itself the first time the app opens. Banning it blocks every catalogue request
+            instantly.
+          </p>
+          <button className="btn-ghost mt-4 w-full" onClick={() => onGo('devices')}>
+            Open device list
+          </button>
         </div>
       </div>
 

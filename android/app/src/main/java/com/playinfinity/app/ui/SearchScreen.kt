@@ -1,163 +1,152 @@
 package com.playinfinity.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.playinfinity.app.data.AppUiState
+import kotlinx.coroutines.delay
 
 @Composable
 fun SearchScreen(
     state: AppUiState,
-    onQuery: (String) -> Unit,
+    onSearch: (String) -> Unit,
     onOpen: (Int) -> Unit,
-    onRequest: (String, (Boolean, String) -> Unit) -> Unit = { _, done -> done(false, "Unavailable") },
+    onSettings: () -> Unit,
 ) {
-    var showRequest by remember { mutableStateOf(false) }
-    var requestTitle by remember { mutableStateOf("" ) }
-    var requestMessage by remember { mutableStateOf<String?>(null) }
-    var requestBusy by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf(state.searchQuery) }
+
+    LaunchedEffect(query) {
+        delay(400)
+        if (query != state.searchQuery) onSearch(query)
+    }
+
+    val groups = listOf(
+        "Movies" to state.searchResults.filter { it.type == "movie" },
+        "Anime" to state.searchResults.filter { it.type == "anime" },
+        "Live TV" to state.searchResults.filter { it.type == "live" },
+    )
 
     Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Search",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            }
+        }
+
         OutlinedTextField(
-            value = state.searchQuery,
-            onValueChange = onQuery,
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            placeholder = { Text("Search movies, series, live TV") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onQuery(state.searchQuery) }),
+            placeholder = { Text("Movies, anime, live channels") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         )
 
         when {
-            state.searchLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            state.searchLoading -> Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 CircularProgressIndicator(color = Brand)
             }
 
-            state.searchQuery.isBlank() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            query.isBlank() -> Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    text = "Type to search the catalogue",
+                    text = "Search the catalogue",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Movies, anime and live channels all live here.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            state.searchResults.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            state.searchResults.isEmpty() -> Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    text = "No results for “${state.searchQuery}”",
+                    text = "No results for “$query”",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Try a different spelling or a shorter word.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             else -> LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(state.searchResults, key = { it.id }) { item ->
-                    MediaCard(item = item, onClick = { onOpen(item.id) }, width = 108.dp)
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Can't find it?",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = {
-                requestMessage = null
-                requestTitle = state.searchQuery
-                showRequest = true
-            }) {
-                Text("Request it")
-            }
-        }
-    }
-
-    if (showRequest) {
-        AlertDialog(
-            onDismissRequest = { showRequest = false },
-            title = { Text("Request a title") },
-            text = {
-                Column {
-                    Text(
-                        text = "Tell us what you want to watch and it lands in the studio inbox.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = requestTitle,
-                        onValueChange = { requestTitle = it },
-                        singleLine = true,
-                        label = { Text("Movie or show name") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (requestMessage != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = requestMessage ?: "",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                groups.forEach { (title, items) ->
+                    if (items.isNotEmpty()) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                text = "$title (${items.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        items(count = items.size, key = { items[it].id }) { index ->
+                            val item = items[index]
+                            MediaCard(item = item, onClick = { onOpen(item.id) }, width = 104.dp)
+                        }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !requestBusy,
-                    onClick = {
-                        requestBusy = true
-                        onRequest(requestTitle) { ok, message ->
-                            requestBusy = false
-                            requestMessage = message
-                            if (ok) {
-                                requestTitle = ""
-                            }
-                        }
-                    },
-                ) {
-                    Text(if (requestBusy) "Sending…" else "Send request")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRequest = false }) { Text("Cancel") }
-            },
-        )
+            }
+        }
     }
 }
