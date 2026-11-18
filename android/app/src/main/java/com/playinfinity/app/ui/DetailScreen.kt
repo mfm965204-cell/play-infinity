@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -58,8 +60,11 @@ import kotlinx.coroutines.withContext
 fun DetailScreen(
     mediaId: Int,
     downloadsEnabled: Boolean,
+    premiumEnabled: Boolean = false,
+    premiumUnlocked: Boolean = true,
     inMyList: Boolean,
     onToggleMyList: () -> Unit,
+    onRequireLicense: () -> Unit = {},
     onBack: () -> Unit,
     onPlay: (url: String, format: String, title: String, live: Boolean) -> Unit,
 ) {
@@ -113,11 +118,28 @@ fun DetailScreen(
                                     ),
                                 ),
                         )
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.padding(8.dp),
-                        ) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            IconButton(
+                                onClick = {
+                                    val link = "playinfinity://movie/${current.id}"
+                                    try {
+                                        val clipboard =
+                                            context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        clipboard.setPrimaryClip(
+                                            android.content.ClipData.newPlainText("Play Infinity", link),
+                                        )
+                                        Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, link, Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -143,11 +165,17 @@ fun DetailScreen(
                             )
                         }
 
+                        val locked = premiumEnabled && !premiumUnlocked && current.category?.isPremium == true
+
                         Spacer(Modifier.height(16.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             val firstEpisode: Episode? = current.episodes.firstOrNull()
                             Button(
                                 onClick = {
+                                    if (locked) {
+                                        onRequireLicense()
+                                        return@Button
+                                    }
                                     when {
                                         current.type == "series" && firstEpisode != null ->
                                             onPlay(firstEpisode.videoUrl, firstEpisode.format, firstEpisode.title, false)
@@ -155,11 +183,14 @@ fun DetailScreen(
                                             onPlay(current.videoUrl, current.format, current.title, current.type == "live")
                                     }
                                 },
-                                enabled = current.videoUrl.isNotBlank() || current.episodes.isNotEmpty(),
+                                enabled = locked || current.videoUrl.isNotBlank() || current.episodes.isNotEmpty(),
                             ) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                                Icon(
+                                    imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.PlayArrow,
+                                    contentDescription = null,
+                                )
                                 Spacer(Modifier.width(6.dp))
-                                Text("Play", fontWeight = FontWeight.SemiBold)
+                                Text(if (locked) "Unlock" else "Play", fontWeight = FontWeight.SemiBold)
                             }
 
                             OutlinedButton(onClick = onToggleMyList) {

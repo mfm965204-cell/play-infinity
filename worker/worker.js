@@ -1,29 +1,28 @@
 /**
  * Play Infinity — API + admin panel host (Cloudflare Worker + D1)
  *
- * Public API (no auth, the user app has no login):
+ * Public (no auth, the app has no login):
  *   GET  /api/health
  *   GET  /api/settings
- *   GET  /api/media?type=movie|series|live&genre=action&q=search&limit=50
- *   GET  /api/media/:id            -> media + episodes
+ *   GET  /api/categories
+ *   GET  /api/home?device_id=            -> category rows + continue watching
+ *   GET  /api/media?type=&genre=&category=&q=&limit=
+ *   GET  /api/media/:id
+ *   GET  /api/continue?device_id=
+ *   POST /api/analytics                  { device_id, media_id, progress_seconds }
+ *   POST /api/request                    { device_id, title }
+ *   POST /api/verify_license             { key, device_id }
  *
- * Admin API (Bearer <session token> or Bearer <admin secret>):
- *   POST   /api/admin/login              { secret }             -> { token }
- *   POST   /api/admin/secret             { current, next }      -> rotate the admin secret
- *   GET    /api/admin/stats                                     -> dashboard counters
- *   GET    /api/admin/activity                                  -> recent admin actions
- *   GET    /api/admin/export                                    -> full JSON export
- *   GET    /api/admin/media?type=&q=&limit=&offset=
- *   POST   /api/admin/media              { id?, title, ... }    -> create or update
- *   POST   /api/admin/media/bulk-delete  { ids: [] }
- *   DELETE /api/admin/media/:id
- *   POST   /api/admin/episode            { id?, media_id, ... }
- *   DELETE /api/admin/episode/:id
- *   GET    /api/admin/settings
- *   POST   /api/admin/settings           { key: value, ... }
- *   GET    /api/admin/iptv/sources
- *   POST   /api/admin/iptv/import        { url? , m3u? , name?, limit? }
- *   POST   /api/admin/iptv/delete-source { url }
+ * Admin (Bearer session token or Bearer admin secret):
+ *   POST   /api/admin/login, /api/admin/secret
+ *   GET    /api/admin/stats, /api/admin/activity, /api/admin/export
+ *   GET/POST /api/admin/media, POST /api/admin/media/bulk-delete, DELETE /api/admin/media/:id
+ *   POST   /api/admin/episode, DELETE /api/admin/episode/:id
+ *   GET/POST /api/admin/settings
+ *   GET/POST /api/admin/categories, DELETE /api/admin/categories/:id
+ *   GET/POST /api/admin/licenses, DELETE /api/admin/licenses/:id
+ *   GET    /api/admin/requests, POST /api/admin/requests/:id/fulfill
+ *   GET    /api/admin/iptv/sources, POST /api/admin/iptv/import, /api/admin/iptv/delete-source
  *
  * Developed by Mohammad Fahad Mir
  */
@@ -32,6 +31,8 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PLAYLIST_BYTES = 6 * 1024 * 1024;
 const MAX_IMPORT = 2000;
 const INSERT_CHUNK = 40;
+const RATE_LIMIT = 60;
+const ROW_LIMIT = 20;
 
 const PUBLIC_SETTING_KEYS = [
   'maintenance',
@@ -46,6 +47,7 @@ const PUBLIC_SETTING_KEYS = [
   'developer_name',
   'developer_portfolio',
   'developer_instagram',
+  'premium_enabled',
 ];
 
 const CORS = {
@@ -83,9 +85,29 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+function pickString(value, fallback = '') {
+  return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function pickNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function flag(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
 async function getSetting(db, key) {
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
   return row ? row.value : null;
+}
+
+async function setSetting(db, key, value) {
+  await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(key, String(value)).run();
 }
 
 async function adminSecretHash(db) {
@@ -96,25 +118,17 @@ async function isAdmin(request, env) {
   const header = request.headers.get('Authorization') || '';
   const token = header.replace(/^Bearer\s+/i, '').trim();
   if (!token) return false;
-
   const hash = await adminSecretHash(env.DB);
   if (timingSafeEqual(await sha256Hex(token), hash)) return true;
-
-  const now = Date.now();
   const session = await env.DB.prepare('SELECT token, expires_at FROM sessions WHERE token = ?').bind(token).first();
-  return Boolean(session && session.expires_at > now);
-}
-
-async function requireAdmin(request, env) {
-  if (await isAdmin(request, env)) return null;
-  return error('unauthorized', 401);
+  return Boolean(session && session.expires_at > Date.now());
 }
 
 async function logActivity(db, action, detail) {
   try {
     await db.prepare('INSERT INTO activity (action, detail) VALUES (?, ?)').bind(action, detail).run();
   } catch {
-    // logging must never break a request
+    /* logging must never break a request */
   }
 }
 
@@ -132,8 +146,21 @@ function normaliseMedia(row) {
     video_url: row.video_url,
     format: row.format,
     featured: row.featured === 1,
+    category_id: row.category_id || null,
     source: row.source || '',
     created_at: row.created_at,
+  };
+}
+
+function normaliseCategory(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    is_premium: row.is_premium === 1,
+    is_enabled: row.is_enabled === 1,
+    sort_order: row.sort_order,
+    media_count: row.media_count === undefined ? undefined : row.media_count,
   };
 }
 
@@ -149,16 +176,6 @@ function normaliseEpisode(row) {
   };
 }
 
-function pickString(value, fallback = '') {
-  return typeof value === 'string' ? value.trim() : fallback;
-}
-
-function pickNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-/** Minimal M3U / M3U8 playlist parser. */
 function parsePlaylist(text) {
   const out = [];
   let cur = null;
@@ -188,26 +205,146 @@ function parsePlaylist(text) {
   return out.filter((e) => e.url && /^https?:\/\//i.test(e.url) && e.name);
 }
 
+/** 60 requests / minute / IP, tracked in D1. */
+async function rateLimit(env, request) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const window = Math.floor(Date.now() / 60000);
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO rate_limit (ip, window, hits) VALUES (?, ?, 1)
+       ON CONFLICT(ip, window) DO UPDATE SET hits = hits + 1 RETURNING hits`,
+    )
+      .bind(ip, window)
+      .first();
+    const hits = row ? row.hits : 1;
+    if (window % 10 === 0) {
+      await env.DB.prepare('DELETE FROM rate_limit WHERE window < ?').bind(window - 5).run();
+    }
+    if (hits > RATE_LIMIT) {
+      return { limited: true, hits };
+    }
+  } catch {
+    // if the limiter table is unavailable, fail open
+  }
+  return { limited: false };
+}
+
+function generateLicenseKey() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const block = (n) => {
+    const bytes = crypto.getRandomValues(new Uint8Array(n));
+    return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
+  };
+  return `INFINITY-${block(4)}-${block(4)}`;
+}
+
 async function handlePublic(request, env, url) {
   const path = url.pathname;
+  const db = env.DB;
 
   if (path === '/api/health') {
-    const counts = await env.DB.prepare('SELECT COUNT(*) AS total FROM media').first();
+    const counts = await db.prepare('SELECT COUNT(*) AS total FROM media').first();
     return json({ ok: true, service: 'play-infinity', media: counts ? counts.total : 0 });
   }
 
   if (path === '/api/settings') {
-    const { results } = await env.DB.prepare('SELECT key, value FROM settings').all();
+    const { results } = await db.prepare('SELECT key, value FROM settings').all();
     const out = {};
-    for (const row of results || []) {
-      if (PUBLIC_SETTING_KEYS.includes(row.key)) out[row.key] = row.value;
-    }
+    for (const row of results || []) if (PUBLIC_SETTING_KEYS.includes(row.key)) out[row.key] = row.value;
     return json(out);
+  }
+
+  if (path === '/api/categories') {
+    const { results } = await db
+      .prepare(
+        `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.category_id = c.id) AS media_count
+         FROM categories c WHERE c.is_enabled = 1 ORDER BY c.sort_order ASC, c.id ASC`,
+      )
+      .all();
+    return json({ items: (results || []).map(normaliseCategory) });
+  }
+
+  if (path === '/api/home') {
+    const deviceId = url.searchParams.get('device_id') || '';
+    const { results: cats } = await db
+      .prepare('SELECT * FROM categories WHERE is_enabled = 1 ORDER BY sort_order ASC, id ASC')
+      .all();
+
+    const rows = [];
+    for (const cat of cats || []) {
+      let items = [];
+      if (cat.slug === 'trending') {
+        const { results } = await db
+          .prepare("SELECT * FROM media WHERE type != 'live' ORDER BY featured DESC, id DESC LIMIT ?")
+          .bind(ROW_LIMIT)
+          .all();
+        items = results || [];
+      } else {
+        const { results } = await db
+          .prepare('SELECT * FROM media WHERE category_id = ? ORDER BY featured DESC, id DESC LIMIT ?')
+          .bind(cat.id, ROW_LIMIT)
+          .all();
+        items = results || [];
+      }
+      if (items.length) {
+        rows.push({ category: normaliseCategory(cat), items: items.map(normaliseMedia) });
+      }
+    }
+
+    let continueWatching = [];
+    if (deviceId) {
+      const { results } = await db
+        .prepare(
+          `SELECT a.media_id, a.progress_seconds, a.last_updated,
+                  m.title, m.cover_url, m.backdrop_url, m.type, m.video_url, m.format,
+                  m.rating, m.release_year, m.genres, m.category_id, m.description, m.featured
+           FROM analytics a JOIN media m ON m.id = a.media_id
+           WHERE a.device_id = ? AND a.progress_seconds > 20
+           ORDER BY a.last_updated DESC LIMIT 12`,
+        )
+        .bind(deviceId)
+        .all();
+      continueWatching = (results || []).map((row) => ({
+        ...normaliseMedia(row),
+        progress_seconds: row.progress_seconds,
+        last_updated: row.last_updated,
+      }));
+    }
+
+    return json({
+      rows,
+      continue_watching: continueWatching,
+      premium: { enabled: (await getSetting(db, 'premium_enabled')) === '1' },
+    });
+  }
+
+  if (path === '/api/continue') {
+    const deviceId = url.searchParams.get('device_id') || '';
+    if (!deviceId) return json({ items: [] });
+    const { results } = await db
+      .prepare(
+        `SELECT a.media_id, a.progress_seconds, a.last_updated,
+                m.title, m.cover_url, m.backdrop_url, m.type, m.video_url, m.format,
+                m.rating, m.release_year, m.genres, m.category_id, m.description, m.featured
+         FROM analytics a JOIN media m ON m.id = a.media_id
+         WHERE a.device_id = ? AND a.progress_seconds > 20
+         ORDER BY a.last_updated DESC LIMIT 12`,
+      )
+      .bind(deviceId)
+      .all();
+    return json({
+      items: (results || []).map((row) => ({
+        ...normaliseMedia(row),
+        progress_seconds: row.progress_seconds,
+        last_updated: row.last_updated,
+      })),
+    });
   }
 
   if (path === '/api/media') {
     const type = url.searchParams.get('type');
     const genre = url.searchParams.get('genre');
+    const category = url.searchParams.get('category');
     const q = url.searchParams.get('q');
     const limit = Math.min(Math.max(pickNumber(url.searchParams.get('limit'), 60), 1), 400);
 
@@ -216,6 +353,10 @@ async function handlePublic(request, env, url) {
     if (type && ['movie', 'series', 'live'].includes(type)) {
       where.push('type = ?');
       params.push(type);
+    }
+    if (category) {
+      where.push('category_id = (SELECT id FROM categories WHERE slug = ?)');
+      params.push(category);
     }
     if (genre) {
       where.push('LOWER(genres) LIKE ?');
@@ -229,20 +370,108 @@ async function handlePublic(request, env, url) {
       'SELECT * FROM media' +
       (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
       ' ORDER BY featured DESC, id DESC LIMIT ?';
-    const { results } = await env.DB.prepare(sql).bind(...params, limit).all();
+    const { results } = await db.prepare(sql).bind(...params, limit).all();
     return json({ items: (results || []).map(normaliseMedia) });
   }
 
   const mediaMatch = path.match(/^\/api\/media\/(\d+)$/);
   if (mediaMatch) {
-    const row = await env.DB.prepare('SELECT * FROM media WHERE id = ?').bind(Number(mediaMatch[1])).first();
+    const row = await db.prepare('SELECT * FROM media WHERE id = ?').bind(Number(mediaMatch[1])).first();
     if (!row) return error('not_found', 404);
-    const { results } = await env.DB.prepare(
-      'SELECT * FROM episodes WHERE media_id = ? ORDER BY season ASC, episode_number ASC',
-    )
+    const { results } = await db
+      .prepare('SELECT * FROM episodes WHERE media_id = ? ORDER BY season ASC, episode_number ASC')
       .bind(Number(mediaMatch[1]))
       .all();
-    return json({ ...normaliseMedia(row), episodes: (results || []).map(normaliseEpisode) });
+    const category = row.category_id
+      ? await db.prepare('SELECT * FROM categories WHERE id = ?').bind(row.category_id).first()
+      : null;
+    return json({
+      ...normaliseMedia(row),
+      category: category ? normaliseCategory(category) : null,
+      episodes: (results || []).map(normaliseEpisode),
+    });
+  }
+
+  if (path === '/api/analytics' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const deviceId = pickString(body?.device_id);
+    const mediaId = Math.trunc(pickNumber(body?.media_id, 0));
+    const progress = Math.max(Math.trunc(pickNumber(body?.progress_seconds, 0)), 0);
+    if (!deviceId || !mediaId) return error('device_and_media_required');
+    await db
+      .prepare(
+        `INSERT INTO analytics (device_id, media_id, progress_seconds, last_updated)
+         VALUES (?, ?, ?, datetime('now'))
+         ON CONFLICT(device_id, media_id) DO UPDATE SET
+           progress_seconds = excluded.progress_seconds,
+           last_updated = datetime('now')`,
+      )
+      .bind(deviceId, mediaId, progress)
+      .run();
+    return json({ ok: true });
+  }
+
+  if (path === '/api/request' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const title = pickString(body?.title);
+    const deviceId = pickString(body?.device_id);
+    if (!title) return error('title_required');
+    await db
+      .prepare('INSERT INTO requests (device_id, title, status) VALUES (?, ?, ?)')
+      .bind(deviceId, title.slice(0, 200), 'pending')
+      .run();
+    return json({ ok: true });
+  }
+
+  if (path === '/api/verify_license' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const key = pickString(body?.key).toUpperCase();
+    const deviceId = pickString(body?.device_id);
+    if (!key) return error('key_required');
+    if (!deviceId) return error('device_id_required');
+
+    const row = await db.prepare('SELECT * FROM licenses WHERE key_string = ?').bind(key).first();
+    if (!row) return error('invalid_key', 404, { message: 'That license key does not exist.' });
+
+    const expiry = Date.parse(row.expiry_date);
+    if (Number.isFinite(expiry) && expiry < Date.now()) {
+      return error('expired', 403, { message: 'This license key has expired.' });
+    }
+
+    let devices = [];
+    try {
+      devices = JSON.parse(row.bound_devices || '[]');
+    } catch {
+      devices = [];
+    }
+    if (!Array.isArray(devices)) devices = [];
+
+    if (devices.includes(deviceId)) {
+      return json({ ok: true, already_bound: true, bound: devices.length, limit: row.device_limit, expiry: row.expiry_date });
+    }
+    if (devices.length >= row.device_limit) {
+      return error('device_limit_reached', 403, { message: 'Device limit reached.' });
+    }
+
+    devices.push(deviceId);
+    await db.prepare('UPDATE licenses SET bound_devices = ? WHERE id = ?').bind(JSON.stringify(devices), row.id).run();
+    await logActivity(db, 'license.bind', `${key} bound to ${deviceId}`);
+    return json({ ok: true, bound: devices.length, limit: row.device_limit, expiry: row.expiry_date });
   }
 
   return error('not_found', 404);
@@ -273,14 +502,22 @@ async function handleAdmin(request, env, url) {
     return json({ token, expires_at: now + SESSION_TTL_MS });
   }
 
-  const denied = await requireAdmin(request, env);
-  if (denied) return denied;
+  if (!(await isAdmin(request, env))) return error('unauthorized', 401);
 
   if (path === '/api/admin/stats') {
     const byType = await db.prepare('SELECT type, COUNT(*) AS n FROM media GROUP BY type').all();
     const episodes = await db.prepare('SELECT COUNT(*) AS n FROM episodes').first();
     const sources = await db.prepare('SELECT COUNT(*) AS n FROM sources').first();
+    const users = await db.prepare('SELECT COUNT(DISTINCT device_id) AS n FROM analytics').first();
+    const pending = await db.prepare("SELECT COUNT(*) AS n FROM requests WHERE status = 'pending'").first();
+    const licenses = await db.prepare('SELECT COUNT(*) AS n FROM licenses').first();
+    const activeLicenses = await db
+      .prepare('SELECT COUNT(*) AS n FROM licenses WHERE expiry_date > ?')
+      .bind(new Date().toISOString().slice(0, 10))
+      .first();
+    const apiCalls = await db.prepare('SELECT SUM(hits) AS n FROM rate_limit').first();
     const live = await db.prepare("SELECT genres FROM media WHERE type = 'live'").all();
+
     const categories = {};
     for (const row of live.results || []) {
       const parts = (row.genres || '').split(',').map((s) => s.trim());
@@ -289,11 +526,17 @@ async function handleAdmin(request, env, url) {
     }
     const counts = {};
     for (const row of byType.results || []) counts[row.type] = row.n;
+
     return json({
       counts,
       episodes: episodes ? episodes.n : 0,
       sources: sources ? sources.n : 0,
       live_categories: categories,
+      users: users ? users.n : 0,
+      pending_requests: pending ? pending.n : 0,
+      licenses: licenses ? licenses.n : 0,
+      active_licenses: activeLicenses ? activeLicenses.n : 0,
+      api_calls: apiCalls && apiCalls.n ? apiCalls.n : 0,
     });
   }
 
@@ -305,6 +548,7 @@ async function handleAdmin(request, env, url) {
   if (path === '/api/admin/export') {
     const media = await db.prepare('SELECT * FROM media ORDER BY id').all();
     const episodes = await db.prepare('SELECT * FROM episodes ORDER BY id').all();
+    const categories = await db.prepare('SELECT * FROM categories ORDER BY id').all();
     const settings = await db.prepare("SELECT key, value FROM settings WHERE key != 'admin_secret_hash'").all();
     const settingsObject = {};
     for (const row of settings.results || []) settingsObject[row.key] = row.value;
@@ -312,6 +556,7 @@ async function handleAdmin(request, env, url) {
       exported_at: new Date().toISOString(),
       media: (media.results || []).map(normaliseMedia),
       episodes: (episodes.results || []).map(normaliseEpisode),
+      categories: (categories.results || []).map(normaliseCategory),
       settings: settingsObject,
     });
   }
@@ -330,18 +575,151 @@ async function handleAdmin(request, env, url) {
       const hash = await adminSecretHash(db);
       if (!timingSafeEqual(await sha256Hex(current), hash)) return error('invalid_current_secret', 401);
     }
-    await db
-      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-      .bind('admin_secret_hash', await sha256Hex(next))
-      .run();
+    await setSetting(db, 'admin_secret_hash', await sha256Hex(next));
     await db.prepare('DELETE FROM sessions').run();
     await logActivity(db, 'secret', 'Admin secret rotated, all sessions signed out');
     return json({ ok: true, sessions_invalidated: true });
   }
 
+  /* ---------------- categories ---------------- */
+
+  if (path === '/api/admin/categories' && request.method === 'GET') {
+    const { results } = await db
+      .prepare(
+        `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.category_id = c.id) AS media_count
+         FROM categories c ORDER BY c.sort_order ASC, c.id ASC`,
+      )
+      .all();
+    return json({ items: (results || []).map(normaliseCategory) });
+  }
+
+  if (path === '/api/admin/categories' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const name = pickString(body?.name);
+    if (!name) return error('name_required');
+    const slug =
+      pickString(body?.slug) ||
+      name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const isPremium = flag(body?.is_premium) ? 1 : 0;
+    const isEnabled = flag(body?.is_enabled, true) ? 1 : 0;
+    const sortOrder = Math.trunc(pickNumber(body?.sort_order, 100));
+    const id = Math.trunc(pickNumber(body?.id, 0));
+
+    if (id > 0) {
+      await db
+        .prepare('UPDATE categories SET name = ?, slug = ?, is_premium = ?, is_enabled = ?, sort_order = ? WHERE id = ?')
+        .bind(name, slug, isPremium, isEnabled, sortOrder, id)
+        .run();
+      await logActivity(db, 'category.update', `${name} (premium ${isPremium ? 'on' : 'off'})`);
+      return json({ ok: true, id });
+    }
+
+    const inserted = await db
+      .prepare(
+        'INSERT INTO categories (name, slug, is_premium, is_enabled, sort_order) VALUES (?, ?, ?, ?, ?) RETURNING id',
+      )
+      .bind(name, slug, isPremium, isEnabled, sortOrder)
+      .first();
+    await logActivity(db, 'category.create', name);
+    return json({ ok: true, id: inserted ? inserted.id : null });
+  }
+
+  const deleteCategory = path.match(/^\/api\/admin\/categories\/(\d+)$/);
+  if (deleteCategory && request.method === 'DELETE') {
+    const id = Number(deleteCategory[1]);
+    await db.batch([
+      db.prepare('UPDATE media SET category_id = NULL WHERE category_id = ?').bind(id),
+      db.prepare('DELETE FROM categories WHERE id = ?').bind(id),
+    ]);
+    await logActivity(db, 'category.delete', `#${id}`);
+    return json({ ok: true });
+  }
+
+  /* ---------------- licenses ---------------- */
+
+  if (path === '/api/admin/licenses' && request.method === 'GET') {
+    const { results } = await db.prepare('SELECT * FROM licenses ORDER BY id DESC').all();
+    return json({
+      items: (results || []).map((row) => {
+        let devices = [];
+        try {
+          devices = JSON.parse(row.bound_devices || '[]');
+        } catch {
+          devices = [];
+        }
+        return {
+          id: row.id,
+          key_string: row.key_string,
+          expiry_date: row.expiry_date,
+          device_limit: row.device_limit,
+          bound: Array.isArray(devices) ? devices.length : 0,
+          devices: Array.isArray(devices) ? devices : [],
+          note: row.note,
+          created_at: row.created_at,
+          expired: Date.parse(row.expiry_date) < Date.now(),
+        };
+      }),
+    });
+  }
+
+  if (path === '/api/admin/licenses' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const days = Math.trunc(pickNumber(body?.days, 30));
+    const expiry = pickString(body?.expiry_date) || new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+    const deviceLimit = Math.max(Math.trunc(pickNumber(body?.device_limit, 1)), 1);
+    const note = pickString(body?.note);
+
+    let key = generateLicenseKey();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const exists = await db.prepare('SELECT id FROM licenses WHERE key_string = ?').bind(key).first();
+      if (!exists) break;
+      key = generateLicenseKey();
+    }
+    const inserted = await db
+      .prepare('INSERT INTO licenses (key_string, expiry_date, device_limit, note) VALUES (?, ?, ?, ?) RETURNING id')
+      .bind(key, expiry, deviceLimit, note)
+      .first();
+    await logActivity(db, 'license.create', `${key} (${deviceLimit} device(s), until ${expiry})`);
+    return json({ ok: true, id: inserted ? inserted.id : null, key_string: key, expiry_date: expiry, device_limit: deviceLimit });
+  }
+
+  const deleteLicense = path.match(/^\/api\/admin\/licenses\/(\d+)$/);
+  if (deleteLicense && request.method === 'DELETE') {
+    await db.prepare('DELETE FROM licenses WHERE id = ?').bind(Number(deleteLicense[1])).run();
+    await logActivity(db, 'license.delete', `#${deleteLicense[1]}`);
+    return json({ ok: true });
+  }
+
+  /* ---------------- requests ---------------- */
+
+  if (path === '/api/admin/requests' && request.method === 'GET') {
+    const { results } = await db.prepare('SELECT * FROM requests ORDER BY id DESC LIMIT 200').all();
+    return json({ items: results || [] });
+  }
+
+  const fulfillRequest = path.match(/^\/api\/admin\/requests\/(\d+)\/fulfill$/);
+  if (fulfillRequest && request.method === 'POST') {
+    await db.prepare("UPDATE requests SET status = 'fulfilled' WHERE id = ?").bind(Number(fulfillRequest[1])).run();
+    await logActivity(db, 'request.fulfill', `#${fulfillRequest[1]}`);
+    return json({ ok: true });
+  }
+
+  /* ---------------- media ---------------- */
+
   if (path === '/api/admin/media' && request.method === 'GET') {
     const type = url.searchParams.get('type');
     const q = url.searchParams.get('q');
+    const categoryId = Math.trunc(pickNumber(url.searchParams.get('category_id'), 0));
     const limit = Math.min(Math.max(pickNumber(url.searchParams.get('limit'), 200), 1), 1000);
     const offset = Math.max(pickNumber(url.searchParams.get('offset'), 0), 0);
 
@@ -350,6 +728,10 @@ async function handleAdmin(request, env, url) {
     if (type && ['movie', 'series', 'live'].includes(type)) {
       where.push('type = ?');
       params.push(type);
+    }
+    if (categoryId) {
+      where.push('category_id = ?');
+      params.push(categoryId);
     }
     if (q) {
       where.push('(LOWER(title) LIKE ? OR LOWER(genres) LIKE ?)');
@@ -374,6 +756,7 @@ async function handleAdmin(request, env, url) {
     const title = pickString(body?.title);
     if (!title) return error('title_required');
 
+    const categoryId = Math.trunc(pickNumber(body?.category_id, 0));
     const fields = {
       title,
       description: pickString(body?.description),
@@ -386,6 +769,7 @@ async function handleAdmin(request, env, url) {
       video_url: pickString(body?.video_url),
       format: ['mp4', 'hls', 'dash'].includes(body?.format) ? body.format : 'mp4',
       featured: body?.featured ? 1 : 0,
+      category_id: categoryId > 0 ? categoryId : null,
     };
 
     const id = Math.trunc(pickNumber(body?.id, 0));
@@ -393,12 +777,12 @@ async function handleAdmin(request, env, url) {
       await db
         .prepare(
           `UPDATE media SET title = ?, description = ?, cover_url = ?, backdrop_url = ?, type = ?,
-           release_year = ?, genres = ?, rating = ?, video_url = ?, format = ?, featured = ? WHERE id = ?`,
+           release_year = ?, genres = ?, rating = ?, video_url = ?, format = ?, featured = ?, category_id = ? WHERE id = ?`,
         )
         .bind(
           fields.title, fields.description, fields.cover_url, fields.backdrop_url, fields.type,
           fields.release_year, fields.genres, fields.rating, fields.video_url, fields.format,
-          fields.featured, id,
+          fields.featured, fields.category_id, id,
         )
         .run();
       await logActivity(db, 'media.update', `${fields.title} (#${id})`);
@@ -407,13 +791,13 @@ async function handleAdmin(request, env, url) {
 
     const inserted = await db
       .prepare(
-        `INSERT INTO media (title, description, cover_url, backdrop_url, type, release_year, genres, rating, video_url, format, featured)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        `INSERT INTO media (title, description, cover_url, backdrop_url, type, release_year, genres, rating, video_url, format, featured, category_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       )
       .bind(
         fields.title, fields.description, fields.cover_url, fields.backdrop_url, fields.type,
         fields.release_year, fields.genres, fields.rating, fields.video_url, fields.format,
-        fields.featured,
+        fields.featured, fields.category_id,
       )
       .first();
     await logActivity(db, 'media.create', `${fields.title} (${fields.type})`);
@@ -448,7 +832,7 @@ async function handleAdmin(request, env, url) {
       db.prepare('DELETE FROM episodes WHERE media_id = ?').bind(id),
       db.prepare('DELETE FROM media WHERE id = ?').bind(id),
     ]);
-    await logActivity(db, 'media.delete', `${row ? row.title : '#' + id}`);
+    await logActivity(db, 'media.delete', row ? row.title : `#${id}`);
     return json({ ok: true, deleted: id });
   }
 
@@ -483,7 +867,6 @@ async function handleAdmin(request, env, url) {
         .run();
       return json({ ok: true, id });
     }
-
     const inserted = await db
       .prepare(
         'INSERT INTO episodes (media_id, season, episode_number, title, video_url, format) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
@@ -500,12 +883,12 @@ async function handleAdmin(request, env, url) {
     return json({ ok: true });
   }
 
+  /* ---------------- settings ---------------- */
+
   if (path === '/api/admin/settings' && request.method === 'GET') {
     const { results } = await db.prepare('SELECT key, value FROM settings').all();
     const out = {};
-    for (const row of results || []) {
-      if (row.key !== 'admin_secret_hash') out[row.key] = row.value;
-    }
+    for (const row of results || []) if (row.key !== 'admin_secret_hash') out[row.key] = row.value;
     return json(out);
   }
 
@@ -534,6 +917,8 @@ async function handleAdmin(request, env, url) {
     return json({ ok: true, updated: updates.map(([k]) => k) });
   }
 
+  /* ---------------- iptv ---------------- */
+
   if (path === '/api/admin/iptv/sources' && request.method === 'GET') {
     const { results } = await db.prepare('SELECT * FROM sources ORDER BY id DESC').all();
     return json({ items: results || [] });
@@ -546,11 +931,11 @@ async function handleAdmin(request, env, url) {
     } catch {
       return error('invalid_json');
     }
-
     const sourceUrl = pickString(body?.url);
     const pasted = pickString(body?.m3u);
     const name = pickString(body?.name) || (sourceUrl ? sourceUrl.split('/').pop() : 'Pasted playlist');
     const limit = Math.min(Math.max(pickNumber(body?.limit, MAX_IMPORT), 1), MAX_IMPORT);
+    const categoryId = Math.trunc(pickNumber(body?.category_id, 0));
 
     let text = pasted;
     if (!text) {
@@ -584,8 +969,8 @@ async function handleAdmin(request, env, url) {
     }
 
     const insertSql =
-      'INSERT INTO media (title, description, cover_url, backdrop_url, type, release_year, genres, rating, video_url, format, featured, source) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      'INSERT INTO media (title, description, cover_url, backdrop_url, type, release_year, genres, rating, video_url, format, featured, source, category_id) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
     let added = 0;
     for (let i = 0; i < fresh.length; i += INSERT_CHUNK) {
@@ -604,6 +989,7 @@ async function handleAdmin(request, env, url) {
           'hls',
           0,
           sourceUrl || 'pasted',
+          categoryId > 0 ? categoryId : null,
         ),
       );
       try {
@@ -618,7 +1004,6 @@ async function handleAdmin(request, env, url) {
     await db.prepare('DELETE FROM sources WHERE url = ?').bind(key).run();
     await db.prepare('INSERT INTO sources (url, name, channels) VALUES (?, ?, ?)').bind(key, name, added).run();
     await logActivity(db, 'iptv.import', `${added} channels from ${name}`);
-
     return json({ ok: true, added, skipped: entries.length - fresh.length, found: entries.length, source: key });
   }
 
@@ -651,6 +1036,14 @@ export default {
 
     if (!url.pathname.startsWith('/api/')) {
       return error('not_found', 404);
+    }
+
+    const limit = await rateLimit(env, request);
+    if (limit.limited) {
+      return json(
+        { error: 'rate_limited', message: 'Too many requests, slow down.', limit: RATE_LIMIT },
+        429,
+      );
     }
 
     try {

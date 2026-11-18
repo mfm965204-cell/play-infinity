@@ -33,7 +33,12 @@ import androidx.compose.ui.unit.dp
 import com.playinfinity.app.data.AppSettings
 
 @Composable
-fun SettingsScreen(settings: AppSettings, onRefresh: () -> Unit) {
+fun SettingsScreen(
+    settings: AppSettings,
+    premiumUnlocked: Boolean = true,
+    onRefresh: () -> Unit,
+    onEnterLicense: () -> Unit = {},
+) {
     val context = LocalContext.current
     var legalTitle by remember { mutableStateOf<String?>(null) }
     var legalBody by remember { mutableStateOf("") }
@@ -56,6 +61,23 @@ fun SettingsScreen(settings: AppSettings, onRefresh: () -> Unit) {
                 InfoRow("App version", settings.appVersion)
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = onRefresh) { Text("Check for updates") }
+            }
+        }
+
+        item {
+            SettingsCard(title = "Premium") {
+                InfoRow(
+                    "Status",
+                    when {
+                        !settings.isPremiumEnabled -> "Not enabled"
+                        premiumUnlocked -> "Unlocked on this device"
+                        else -> "Locked"
+                    },
+                )
+                if (settings.isPremiumEnabled && !premiumUnlocked) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(onClick = onEnterLicense) { Text("Enter license key") }
+                }
             }
         }
 

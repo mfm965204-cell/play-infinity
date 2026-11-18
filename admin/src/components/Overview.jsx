@@ -19,6 +19,21 @@ export default function Overview({ stats, activity, recent, settings, onGo, onEx
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Total users" value={stats.users || 0} hint="Devices reporting playback" />
+        <Stat
+          label="Active licenses"
+          value={stats.active_licenses || 0}
+          hint={`${stats.licenses || 0} issued in total`}
+        />
+        <Stat
+          label="Pending requests"
+          value={stats.pending_requests || 0}
+          hint="Waiting in the inbox"
+        />
+        <Stat label="API requests" value={stats.api_calls || 0} hint="Counted by the rate limiter" />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Movies" value={counts.movie || 0} />
         <Stat label="Series" value={counts.series || 0} hint={`${stats.episodes || 0} episodes`} />
         <Stat label="Live channels" value={counts.live || 0} hint={`${stats.sources || 0} source(s)`} />
@@ -44,6 +59,7 @@ export default function Overview({ stats, activity, recent, settings, onGo, onEx
               ['Live TV', onOff(settings.live_tv_enabled), false],
               ['Downloads', onOff(settings.downloads_enabled), false],
               ['Force update', onOff(settings.update_required), settings.update_required === '1'],
+              ['Premium system', onOff(settings.premium_enabled), false],
             ].map(([label, value, alarm]) => (
               <li key={label} className="flex items-center justify-between py-3">
                 <span className="text-zinc-300">{label}</span>

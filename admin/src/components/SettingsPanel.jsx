@@ -38,6 +38,7 @@ export default function SettingsPanel({ settings, onSaved, onError, onSignOut })
       maintenance_message: settings.maintenance_message || '',
       update_message: settings.update_message || '',
       app_version: settings.app_version || '1.0.0',
+      premium_enabled: settings.premium_enabled === '1',
       developer_name: settings.developer_name || 'Mohammad Fahad Mir',
       developer_portfolio: settings.developer_portfolio || 'https://portfolio.mfm965204.workers.dev/',
       developer_instagram: settings.developer_instagram || 'https://www.instagram.com/fahad0101r',
@@ -93,6 +94,12 @@ export default function SettingsPanel({ settings, onSaved, onError, onSignOut })
         <p className="mb-2 text-xs text-zinc-500">These are read by the Android app on launch.</p>
 
         <div className="divide-y divide-edge">
+          <Toggle
+            label="Enable premium system"
+            hint="Turns on the license gate for premium categories."
+            checked={Boolean(form.premium_enabled)}
+            onChange={(v) => update({ premium_enabled: v })}
+          />
           <Toggle
             label="Maintenance mode"
             hint="Blocks the whole app with a full-screen notice."

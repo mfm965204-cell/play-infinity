@@ -14,11 +14,12 @@ const EMPTY = {
   video_url: '',
   format: 'mp4',
   featured: false,
+  category_id: 0,
 };
 
 const PAGE = 40;
 
-export default function MediaPanel({ refreshKey, editing, setEditing, onSaved, onError, onAddEpisode }) {
+export default function MediaPanel({ refreshKey, categories = [], editing, setEditing, onSaved, onError, onAddEpisode }) {
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
@@ -65,6 +66,7 @@ export default function MediaPanel({ refreshKey, editing, setEditing, onSaved, o
         genres: form.genres,
         release_year: Number(form.release_year) || 0,
         rating: Number(form.rating) || 0,
+        category_id: Number(form.category_id) || 0,
       });
       setForm(EMPTY);
       setEditing(null);
@@ -175,6 +177,23 @@ export default function MediaPanel({ refreshKey, editing, setEditing, onSaved, o
               onChange={(e) => update({ genres: e.target.value })}
             />
           </div>
+        </div>
+
+        <div>
+          <label className="label">Category</label>
+          <select
+            className="input"
+            value={form.category_id || 0}
+            onChange={(e) => update({ category_id: Number(e.target.value) })}
+          >
+            <option value={0}>No category</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+                {category.is_premium ? ' (premium)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>

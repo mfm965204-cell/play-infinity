@@ -23,11 +23,7 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (auth) headers.Authorization = `Bearer ${getToken()}`;
 
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
 
   let data = null;
   const text = await res.text();
@@ -55,6 +51,17 @@ export const api = {
   stats: () => request('/api/admin/stats', { auth: true }),
   activity: () => request('/api/admin/activity', { auth: true }),
   exportAll: () => request('/api/admin/export', { auth: true }),
+
+  categories: () => request('/api/admin/categories', { auth: true }),
+  saveCategory: (category) => request('/api/admin/categories', { method: 'POST', body: category, auth: true }),
+  deleteCategory: (id) => request(`/api/admin/categories/${id}`, { method: 'DELETE', auth: true }),
+
+  licenses: () => request('/api/admin/licenses', { auth: true }),
+  createLicense: (payload) => request('/api/admin/licenses', { method: 'POST', body: payload, auth: true }),
+  deleteLicense: (id) => request(`/api/admin/licenses/${id}`, { method: 'DELETE', auth: true }),
+
+  requests: () => request('/api/admin/requests', { auth: true }),
+  fulfillRequest: (id) => request(`/api/admin/requests/${id}/fulfill`, { method: 'POST', auth: true }),
 
   listMedia: (params) => request(`/api/admin/media${query(params)}`, { auth: true }),
   saveMedia: (media) => request('/api/admin/media', { method: 'POST', body: media, auth: true }),

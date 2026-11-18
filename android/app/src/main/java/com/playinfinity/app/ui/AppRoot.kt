@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,19 +14,27 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,10 +63,37 @@ private val tabs = listOf(
 fun AppRoot(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val myList by viewModel.myList.collectAsState()
+    val premiumUnlocked by viewModel.premiumUnlocked.collectAsState()
     val navController = rememberNavController()
 
+    var gateSkipped by remember { mutableStateOf(false) }
+    var showLicenseDialog by remember { mutableStateOf(false) }
+    var licenseBusy by remember { mutableStateOf(false) }
+    var licenseMessage by remember { mutableStateOf<String?>(null) }
+    var licenseSuccess by remember { mutableStateOf(false) }
+
+    val verifyLicense: (String) -> Unit = { key ->
+        licenseBusy = true
+        licenseMessage = null
+        viewModel.verifyLicense(key) { ok, message ->
+            licenseBusy = false
+            licenseSuccess = ok
+            licenseMessage = message
+            if (ok) showLicenseDialog = false
+        }
+    }
+
+    val deepLinkId by DeepLink.movieId
+    LaunchedEffect(deepLinkId, state.loading) {
+        val id = deepLinkId
+        if (id != null && !state.loading) {
+            navController.navigate("detail/$id")
+            DeepLink.movieId.value = null
+        }
+    }
+
     when {
-        state.loading -> LoadingScreen()
+        state.loading -> SkeletonHome()
 
         state.settings.isMaintenance -> BlockingScreen(
             title = "We'll be back soon",
@@ -84,6 +120,14 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
             onAction = { viewModel.load() },
         )
 
+        state.settings.isPremiumEnabled && !premiumUnlocked && !gateSkipped -> LicenseScreen(
+            busy = licenseBusy,
+            message = licenseMessage,
+            success = licenseSuccess,
+            onVerify = verifyLicense,
+            onSkip = { gateSkipped = true },
+        )
+
         else -> {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val route = backStackEntry?.destination?.route ?: "home"
@@ -92,7 +136,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
             Scaffold(
                 bottomBar = {
                     if (showBar) {
-                        BottomBar(current = route, navController = navController)
+                        GlassBottomBar(current = route, navController = navController)
                     }
                 },
                 containerColor = Ink,
@@ -105,7 +149,15 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     composable("home") {
                         HomeScreen(
                             state = state,
-                            onOpen = { id -> navController.navigate("detail/$id") },
+                            premiumUnlocked = premiumUnlocked,
+                            onOpen = { id, locked ->
+                                if (locked) {
+                                    licenseMessage = null
+                                    showLicenseDialog = true
+                                } else {
+                                    navController.navigate("detail/$id")
+                                }
+                            },
                             onPlay = { item ->
                                 if (item.isSeries) {
                                     navController.navigate("detail/${item.id}")
@@ -121,6 +173,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                             state = state,
                             onQuery = viewModel::search,
                             onOpen = { id -> navController.navigate("detail/$id") },
+                            onRequest = { title, done -> viewModel.submitRequest(title, done) },
                         )
                     }
 
@@ -135,7 +188,12 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     composable("settings") {
                         SettingsScreen(
                             settings = state.settings,
+                            premiumUnlocked = premiumUnlocked,
                             onRefresh = { viewModel.load() },
+                            onEnterLicense = {
+                                licenseMessage = null
+                                showLicenseDialog = true
+                            },
                         )
                     }
 
@@ -147,8 +205,14 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         DetailScreen(
                             mediaId = id,
                             downloadsEnabled = state.settings.isDownloadsEnabled,
+                            premiumEnabled = state.settings.isPremiumEnabled,
+                            premiumUnlocked = premiumUnlocked,
                             inMyList = myList.contains(id),
                             onToggleMyList = { viewModel.toggleMyList(id) },
+                            onRequireLicense = {
+                                licenseMessage = null
+                                showLicenseDialog = true
+                            },
                             onBack = { navController.popBackStack() },
                             onPlay = { url, format, title, live ->
                                 navController.navigate(
@@ -169,8 +233,9 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                             navArgument("live") { type = NavType.BoolType; defaultValue = false },
                         ),
                     ) { entry ->
+                        val mediaId = entry.arguments?.getInt("id") ?: 0
                         PlayerScreen(
-                            mediaId = entry.arguments?.getInt("id") ?: 0,
+                            mediaId = mediaId,
                             url = entry.arguments?.getString("url") ?: "",
                             format = entry.arguments?.getString("format") ?: "mp4",
                             title = entry.arguments?.getString("title") ?: "",
@@ -179,11 +244,57 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenSuggested = { suggestedId ->
                                 navController.navigate("detail/$suggestedId")
                             },
+                            onProgress = { seconds ->
+                                viewModel.reportProgress(mediaId, seconds)
+                            },
                         )
                     }
                 }
             }
         }
+    }
+
+    if (showLicenseDialog) {
+        AlertDialog(
+            onDismissRequest = { showLicenseDialog = false },
+            title = { Text("Premium content") },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter a license key to unlock premium categories on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    var key by remember { mutableStateOf("") }
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it },
+                        singleLine = true,
+                        label = { Text("License key") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (licenseMessage != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = licenseMessage ?: "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (licenseSuccess) Color(0xFF34D399) else Color(0xFFF87171),
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { verifyLicense(key) },
+                        enabled = !licenseBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (licenseBusy) "Checking…" else "Unlock")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLicenseDialog = false }) { Text("Close") }
+            },
+        )
     }
 }
 
@@ -192,8 +303,11 @@ private fun playerRoute(item: MediaItem): String =
         "&title=${Uri.encode(item.title)}&live=${item.isLive}"
 
 @Composable
-private fun BottomBar(current: String, navController: NavHostController) {
-    NavigationBar(containerColor = Panel) {
+private fun GlassBottomBar(current: String, navController: NavHostController) {
+    NavigationBar(
+        containerColor = Panel.copy(alpha = 0.92f),
+        tonalElevation = 0.dp,
+    ) {
         tabs.forEach { tab ->
             NavigationBarItem(
                 selected = current == tab.route,
@@ -210,13 +324,6 @@ private fun BottomBar(current: String, navController: NavHostController) {
                 label = { Text(tab.label) },
             )
         }
-    }
-}
-
-@Composable
-private fun LoadingScreen() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = Brand)
     }
 }
 

@@ -97,6 +97,7 @@ fun PlayerScreen(
     live: Boolean,
     onBack: () -> Unit,
     onOpenSuggested: (Int) -> Unit,
+    onProgress: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val rootView = LocalView.current
@@ -198,6 +199,15 @@ fun PlayerScreen(
                     label to group.mediaTrackGroup
                 }
             delay(500)
+        }
+    }
+
+    LaunchedEffect(mediaId, url) {
+        if (mediaId <= 0 || url.isBlank()) return@LaunchedEffect
+        while (true) {
+            delay(5000)
+            val seconds = (player.currentPosition / 1000).toInt()
+            if (seconds > 5 && player.isPlaying) onProgress(seconds)
         }
     }
 

@@ -15,6 +15,9 @@ data class MediaItem(
     @SerializedName("video_url") val videoUrl: String = "",
     val format: String = "mp4",
     val featured: Boolean = false,
+    @SerializedName("category_id") val categoryId: Int? = null,
+    @SerializedName("progress_seconds") val progressSeconds: Int = 0,
+    @SerializedName("last_updated") val lastUpdated: String = "",
 ) {
     val metaLine: String
         get() {
@@ -28,6 +31,29 @@ data class MediaItem(
     val isLive: Boolean get() = type == "live"
     val isSeries: Boolean get() = type == "series"
 }
+
+data class Category(
+    val id: Int = 0,
+    val name: String = "",
+    val slug: String = "",
+    @SerializedName("is_premium") val isPremium: Boolean = false,
+    @SerializedName("is_enabled") val isEnabled: Boolean = true,
+    @SerializedName("sort_order") val sortOrder: Int = 0,
+    @SerializedName("media_count") val mediaCount: Int = 0,
+)
+
+data class HomeRow(
+    val category: Category = Category(),
+    val items: List<MediaItem> = emptyList(),
+)
+
+data class PremiumState(val enabled: Boolean = false)
+
+data class HomeResponse(
+    val rows: List<HomeRow> = emptyList(),
+    @SerializedName("continue_watching") val continueWatching: List<MediaItem> = emptyList(),
+    val premium: PremiumState = PremiumState(),
+)
 
 data class Episode(
     val id: Int = 0,
@@ -54,6 +80,8 @@ data class MediaDetail(
     @SerializedName("video_url") val videoUrl: String = "",
     val format: String = "mp4",
     val featured: Boolean = false,
+    @SerializedName("category_id") val categoryId: Int? = null,
+    val category: Category? = null,
     val episodes: List<Episode> = emptyList(),
 ) {
     fun toItem(): MediaItem = MediaItem(
@@ -69,10 +97,41 @@ data class MediaDetail(
         videoUrl = videoUrl,
         format = format,
         featured = featured,
+        categoryId = categoryId,
     )
 }
 
 data class MediaListResponse(val items: List<MediaItem> = emptyList())
+
+data class CategoryListResponse(val items: List<Category> = emptyList())
+
+data class SimpleResponse(val ok: Boolean = false)
+
+data class AnalyticsBody(
+    @SerializedName("device_id") val deviceId: String,
+    @SerializedName("media_id") val mediaId: Int,
+    @SerializedName("progress_seconds") val progressSeconds: Int,
+)
+
+data class RequestBodyDto(
+    @SerializedName("device_id") val deviceId: String,
+    val title: String,
+)
+
+data class LicenseBody(
+    val key: String,
+    @SerializedName("device_id") val deviceId: String,
+)
+
+data class LicenseResponse(
+    val ok: Boolean = false,
+    val bound: Int = 0,
+    val limit: Int = 0,
+    val expiry: String = "",
+    @SerializedName("already_bound") val alreadyBound: Boolean = false,
+    val error: String? = null,
+    val message: String? = null,
+)
 
 data class AppSettings(
     val maintenance: String = "0",
@@ -87,9 +146,11 @@ data class AppSettings(
     @SerializedName("developer_name") val developerName: String = "Mohammad Fahad Mir",
     @SerializedName("developer_portfolio") val developerPortfolio: String = "https://portfolio.mfm965204.workers.dev/",
     @SerializedName("developer_instagram") val developerInstagram: String = "https://www.instagram.com/fahad0101r",
+    @SerializedName("premium_enabled") val premiumEnabled: String = "0",
 ) {
     val isMaintenance: Boolean get() = maintenance == "1"
     val isLiveEnabled: Boolean get() = liveTvEnabled == "1"
     val isDownloadsEnabled: Boolean get() = downloadsEnabled == "1"
     val isUpdateRequired: Boolean get() = updateRequired == "1"
+    val isPremiumEnabled: Boolean get() = premiumEnabled == "1"
 }

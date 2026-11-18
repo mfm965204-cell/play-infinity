@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -13,12 +16,18 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -26,7 +35,17 @@ import androidx.compose.ui.unit.dp
 import com.playinfinity.app.data.AppUiState
 
 @Composable
-fun SearchScreen(state: AppUiState, onQuery: (String) -> Unit, onOpen: (Int) -> Unit) {
+fun SearchScreen(
+    state: AppUiState,
+    onQuery: (String) -> Unit,
+    onOpen: (Int) -> Unit,
+    onRequest: (String, (Boolean, String) -> Unit) -> Unit = { _, done -> done(false, "Unavailable") },
+) {
+    var showRequest by remember { mutableStateOf(false) }
+    var requestTitle by remember { mutableStateOf("" ) }
+    var requestMessage by remember { mutableStateOf<String?>(null) }
+    var requestBusy by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = state.searchQuery,
@@ -70,5 +89,75 @@ fun SearchScreen(state: AppUiState, onQuery: (String) -> Unit, onOpen: (Int) -> 
                 }
             }
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Can't find it?",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = {
+                requestMessage = null
+                requestTitle = state.searchQuery
+                showRequest = true
+            }) {
+                Text("Request it")
+            }
+        }
+    }
+
+    if (showRequest) {
+        AlertDialog(
+            onDismissRequest = { showRequest = false },
+            title = { Text("Request a title") },
+            text = {
+                Column {
+                    Text(
+                        text = "Tell us what you want to watch and it lands in the studio inbox.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = requestTitle,
+                        onValueChange = { requestTitle = it },
+                        singleLine = true,
+                        label = { Text("Movie or show name") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (requestMessage != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = requestMessage ?: "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !requestBusy,
+                    onClick = {
+                        requestBusy = true
+                        onRequest(requestTitle) { ok, message ->
+                            requestBusy = false
+                            requestMessage = message
+                            if (ok) {
+                                requestTitle = ""
+                            }
+                        }
+                    },
+                ) {
+                    Text(if (requestBusy) "Sending…" else "Send request")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRequest = false }) { Text("Cancel") }
+            },
+        )
     }
 }

@@ -72,6 +72,18 @@ rating, video_url, format, featured), `episodes` (id, media_id, season, episode_
 title, video_url, format), `settings` (key, value), `sessions` (token, created_at,
 expires_at).
 
+## Premium system
+
+* `categories` carry `is_premium` and `is_enabled`; the app hides disabled rows and locks premium ones.
+* `POST /api/verify_license {key, device_id}` checks the key exists, is not expired, and either already
+  has the device bound or has room under `device_limit`; otherwise it returns 403 *Device limit reached.*
+* `licenses` rows keep the bound device IDs as JSON; `POST /api/admin/licenses` mints a key like
+  `INFINITY-XXXX-XXXX` for a given expiry and device limit.
+* `analytics` records per-device playback progress, which powers the app's Continue Watching row.
+* `requests` collects titles users ask for from the search screen; the studio inbox can mark them fulfilled.
+* Every `/api/*` call is rate limited to 60 requests per minute per IP (D1-backed bucket) and answers
+  429 with `{"error":"rate_limited"}` when exceeded.
+
 ## Admin panel
 
 `admin/` — React 18 + Vite + Tailwind, dark studio theme.
