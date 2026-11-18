@@ -12,6 +12,7 @@ import RequestsPanel from './components/RequestsPanel';
 import SettingsPanel from './components/SettingsPanel';
 import LegalPanel from './components/LegalPanel';
 import LegalPage from './components/LegalPage';
+import SharePage from './components/SharePage';
 import Footer from './components/Footer';
 
 export default function App() {
@@ -74,6 +75,11 @@ export default function App() {
   useEffect(() => {
     if (authed) refresh();
   }, [authed, refresh]);
+
+  const shareMatch = route.match(/^\/movie\/(\d+)\/?$/);
+  if (shareMatch) {
+    return <SharePage id={Number(shareMatch[1])} />;
+  }
 
   if (route === '/privacy' || route === '/terms') {
     return (

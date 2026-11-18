@@ -125,7 +125,7 @@ fun DetailScreen(
                             Spacer(Modifier.weight(1f))
                             IconButton(
                                 onClick = {
-                                    val link = "playinfinity://movie/${current.id}"
+                                    val link = "${Api.BASE_URL}movie/${current.id}"
                                     try {
                                         val clipboard =
                                             context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager

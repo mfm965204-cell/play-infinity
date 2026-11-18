@@ -32,6 +32,16 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="playinfinity" android:host="movie" />
             </intent-filter>
+
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="playinfinity.mfm965204.workers.dev"
+                    android:pathPrefix="/movie" />
+            </intent-filter>
         </activity>
     </application>
 

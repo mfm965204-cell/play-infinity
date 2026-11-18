@@ -205,6 +205,112 @@ function parsePlaylist(text) {
   return out.filter((e) => e.url && /^https?:\/\//i.test(e.url) && e.name);
 }
 
+function escapeHtml(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, (ch) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]),
+  );
+}
+
+/** Public share page: https://…/movie/{id} — clickable anywhere, opens the app. */
+async function handleLanding(env, id) {
+  const row = await env.DB.prepare('SELECT * FROM media WHERE id = ?').bind(id).first();
+  if (!row) {
+    return new Response(
+      '<!doctype html><meta charset="utf-8"><title>Not found</title>' +
+        '<body style="background:#0B0B0F;color:#fff;font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0">' +
+        '<div style="text-align:center"><h1 style="font-weight:800">Title not found</h1>' +
+        '<p style="color:#A1A1AA">This link does not point at anything in the catalogue.</p></div></body>',
+      { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    );
+  }
+
+  const m = normaliseMedia(row);
+  const appLink = `playinfinity://movie/${m.id}`;
+  const webLink = `/movie/${m.id}`;
+  const poster = m.backdropUrl || m.coverUrl;
+  const meta = [m.releaseYear || null, m.rating ? `★ ${m.rating.toFixed(1)}` : null, ...(m.genres || []).slice(0, 2)]
+    .filter(Boolean)
+    .join(' · ');
+
+  const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(m.title)} — Play Infinity</title>
+<meta property="og:title" content="${escapeHtml(m.title)} — Play Infinity">
+<meta property="og:description" content="${escapeHtml((m.description || '').slice(0, 160))}">
+${poster ? `<meta property="og:image" content="${escapeHtml(poster)}">` : ''}
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0B0B0F; color:#fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .hero { position:relative; min-height:52vh; display:flex; align-items:flex-end; }
+  .hero img.bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.55; }
+  .hero .scrim { position:absolute; inset:0; background:linear-gradient(180deg, rgba(11,11,15,.35) 0%, rgba(11,11,15,.85) 60%, #0B0B0F 100%); }
+  .hero .inner { position:relative; padding:24px; width:100%; max-width:760px; margin:0 auto; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:.4px; margin-bottom:18px; }
+  .brand span.mark { display:grid; place-items:center; width:28px; height:28px; border-radius:8px; background:#E50914; font-size:13px; }
+  h1 { font-size:clamp(26px, 6vw, 44px); line-height:1.05; margin:0 0 8px; font-weight:900; letter-spacing:-.5px; }
+  .meta { color:#A1A1AA; font-size:14px; margin-bottom:14px; }
+  .desc { color:#D4D4D8; font-size:15px; line-height:1.6; max-width:60ch; }
+  .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:22px; }
+  a.btn { display:inline-flex; align-items:center; gap:8px; text-decoration:none; font-weight:700; font-size:15px; padding:13px 22px; border-radius:999px; }
+  a.primary { background:#fff; color:#000; }
+  a.ghost { border:1px solid rgba(255,255,255,.22); color:#fff; background:rgba(255,255,255,.06); }
+  .hint { margin-top:18px; color:#71717A; font-size:13px; line-height:1.6; }
+  .hint a { color:#A1A1AA; }
+</style></head>
+<body>
+  <div class="hero">
+    ${poster ? `<img class="bg" src="${escapeHtml(poster)}" alt="">` : ''}
+    <div class="scrim"></div>
+    <div class="inner">
+      <div class="brand"><span class="mark">▶</span> Play Infinity</div>
+      <h1>${escapeHtml(m.title)}</h1>
+      ${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ''}
+      <p class="desc">${escapeHtml((m.description || '').slice(0, 260))}</p>
+      <div class="actions">
+        <a class="btn primary" href="${appLink}" id="open">▶ Open in Play Infinity</a>
+        <a class="btn ghost" href="https://github.com/mfm965204-cell/play-infinity">Get the app</a>
+      </div>
+      <p class="hint" id="hint">
+        Tap <b>Open in Play Infinity</b>. If nothing happens, the app is not installed yet —
+        grab the latest APK from <a href="https://github.com/mfm965204-cell/play-infinity/actions">GitHub Actions</a>.
+        This page is ${escapeHtml(webLink)}.
+      </p>
+    </div>
+  </div>
+<script>
+  (function () {
+    var target = ${JSON.stringify(appLink)};
+    var btn = document.getElementById('open');
+    var hint = document.getElementById('hint');
+    function attempt() {
+      var started = Date.now();
+      window.location.href = target;
+      setTimeout(function () {
+        if (Date.now() - started < 2200 && !document.hidden) {
+          hint.innerHTML = 'The app did not open. Install Play Infinity, then tap the button again.';
+        }
+      }, 1800);
+    }
+    btn.addEventListener('click', function (event) {
+      event.preventDefault();
+      attempt();
+    });
+  })();
+</script>
+</body></html>`;
+
+  return new Response(html, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
 /** 60 requests / minute / IP, tracked in D1. */
 async function rateLimit(env, request) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -1032,6 +1138,15 @@ export default {
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
+    }
+
+    const landing = url.pathname.match(/^\/movie\/(\d+)\/?$/);
+    if (landing) {
+      try {
+        return await handleLanding(env, Number(landing[1]));
+      } catch (e) {
+        return new Response('Server error', { status: 500 });
+      }
     }
 
     if (!url.pathname.startsWith('/api/')) {

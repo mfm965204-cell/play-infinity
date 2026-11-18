@@ -27,13 +27,27 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
     }
 
+    /**
+     * Accepts both share formats:
+     *   playinfinity://movie/42
+     *   https://playinfinity.mfm965204.workers.dev/movie/42
+     */
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "playinfinity" && data.host == "movie") {
-            val id = data.pathSegments.firstOrNull()?.toIntOrNull()
-            if (id != null && id > 0) {
-                DeepLink.movieId.value = id
-            }
+        val segments = data.pathSegments ?: return
+
+        val id = when {
+            data.scheme == "playinfinity" && data.host == "movie" ->
+                segments.firstOrNull()?.toIntOrNull()
+
+            segments.firstOrNull() == "movie" ->
+                segments.getOrNull(1)?.toIntOrNull()
+
+            else -> null
+        }
+
+        if (id != null && id > 0) {
+            DeepLink.movieId.value = id
         }
     }
 }
