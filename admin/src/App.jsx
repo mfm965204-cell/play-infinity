@@ -7,6 +7,7 @@ import MediaPanel from './components/MediaPanel';
 import EpisodePanel from './components/EpisodePanel';
 import LiveTvPanel from './components/LiveTvPanel';
 import DevicesPanel from './components/DevicesPanel';
+import NotificationsPanel from './components/NotificationsPanel';
 import SettingsPanel from './components/SettingsPanel';
 import LegalPanel from './components/LegalPanel';
 import LegalPage from './components/LegalPage';
@@ -25,6 +26,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [live, setLive] = useState(null);
 
   const navigate = useCallback((path) => {
     window.history.pushState({}, '', path);
@@ -71,6 +73,34 @@ export default function App() {
     if (authed) refresh();
   }, [authed, refresh]);
 
+  // Real-time stats over server-sent events.
+  useEffect(() => {
+    if (!authed) return undefined;
+    const token = getToken();
+    if (!token) return undefined;
+    let source = null;
+    try {
+      source = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'stats') setLive(data);
+        } catch {
+          /* ignore malformed frame */
+        }
+      };
+    } catch {
+      source = null;
+    }
+    return () => {
+      try {
+        source?.close();
+      } catch {
+        /* already closed */
+      }
+    };
+  }, [authed]);
+
   const shareMatch = route.match(/^\/movie\/(\d+)\/?$/);
   if (shareMatch) {
     return <SharePage id={Number(shareMatch[1])} />;
@@ -115,8 +145,14 @@ export default function App() {
           <div className="flex items-center gap-3 px-5 py-3">
             <h1 className="text-sm font-bold">{NAV.find((item) => item.id === tab)?.label || 'Studio'}</h1>
             <div className="ml-auto flex items-center gap-2">
-              <span className="hidden text-xs text-zinc-500 sm:inline">
-                {stats.devices || 0} devices · {stats.banned_devices || 0} banned
+              <span className="hidden items-center gap-2 text-xs text-zinc-500 sm:flex">
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'bg-emerald-400' : 'bg-zinc-600'}`}
+                  title={live ? `Live · ${live.at}` : 'Connecting…'}
+                />
+                {live ? live.devices : stats.devices || 0} devices ·{' '}
+                {live ? live.banned : stats.banned_devices || 0} banned ·{' '}
+                {live ? live.media : stats.counts?.movie + stats.counts?.anime + stats.counts?.live || 0} titles
               </span>
               <button className="btn-ghost lg:hidden" onClick={refresh}>
                 Refresh
@@ -203,6 +239,10 @@ export default function App() {
 
           {tab === 'devices' ? (
             <DevicesPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
+          ) : null}
+
+          {tab === 'notifications' ? (
+            <NotificationsPanel refreshKey={refreshKey} onSaved={refresh} onError={setError} />
           ) : null}
 
           {tab === 'settings' ? (

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
@@ -31,7 +32,9 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -69,7 +73,10 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
@@ -90,7 +97,26 @@ fun PlayerScreen(
     val context = LocalContext.current
     val rootView = LocalView.current
     val activity = remember(context) { context.findActivity() }
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val dataSourceFactory = remember {
+        DefaultHttpDataSource.Factory()
+            .setUserAgent(
+                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/122.0.0.0 Mobile Safari/537.36",
+            )
+            .setConnectTimeoutMs(20_000)
+            .setReadTimeoutMs(20_000)
+            .setAllowCrossProtocolRedirects(true)
+    }
+    val player = remember {
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(10_000, 60_000, 1_000, 2_000)
+                    .build(),
+            )
+            .build()
+    }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     var fullscreen by remember { mutableStateOf(false) }
@@ -106,11 +132,29 @@ fun PlayerScreen(
     var audioOptions by remember { mutableStateOf<List<Pair<String, TrackGroup>>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var brightness by remember { mutableFloatStateOf(1f) }
+    var retryCount by remember { mutableIntStateOf(0) }
+    var retrySignal by remember { mutableIntStateOf(0) }
+    var reconnecting by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                errorMessage = error.errorCodeName
+                // IPTV restreams drop constantly: retry a few times before giving up.
+                if (retryCount < 6) {
+                    retryCount += 1
+                    reconnecting = true
+                    retrySignal += 1
+                } else {
+                    reconnecting = false
+                    errorMessage = error.errorCodeName
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    reconnecting = false
+                    retryCount = 0
+                }
             }
         }
         player.addListener(listener)
@@ -178,6 +222,17 @@ fun PlayerScreen(
         while (true) {
             delay(5000)
             if (player.isPlaying) onPosition(player.currentPosition)
+        }
+    }
+
+    LaunchedEffect(retrySignal) {
+        if (retrySignal == 0) return@LaunchedEffect
+        delay(2000)
+        try {
+            player.prepare()
+            if (live) player.seekToDefaultPosition()
+        } catch (_: Exception) {
+            // next error frame schedules another attempt
         }
     }
 
@@ -255,6 +310,28 @@ fun PlayerScreen(
                     },
             )
 
+            if (reconnecting) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Reconnecting…",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+
             if (errorMessage != null) {
                 Column(
                     modifier = Modifier.align(Alignment.Center).padding(20.dp),
@@ -271,6 +348,14 @@ fun PlayerScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFA1A1AA),
                     )
+                    Spacer(Modifier.size(8.dp))
+                    TextButton(onClick = {
+                        retryCount = 0
+                        errorMessage = null
+                        retrySignal += 1
+                    }) {
+                        Text("Retry", color = Color.White)
+                    }
                 }
             }
 

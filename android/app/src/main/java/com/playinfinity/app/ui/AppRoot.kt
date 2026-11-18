@@ -1,14 +1,19 @@
 package com.playinfinity.app.ui
 
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
@@ -27,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -104,6 +110,16 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
             val showBar = tabs.any { it.route == route }
 
             Scaffold(
+                topBar = {
+                    val note = state.notification
+                    if (note != null && !state.dismissedNotificationIds.contains(note.id)) {
+                        BannerCard(
+                            title = note.title,
+                            body = note.body,
+                            onDismiss = { viewModel.dismissNotification(note.id) },
+                        )
+                    }
+                },
                 bottomBar = {
                     if (showBar) {
                         GlassBottomBar(current = route, navController = navController)
@@ -265,6 +281,41 @@ private fun BlockingScreen(
             )
             Spacer(Modifier.height(22.dp))
             Button(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+@Composable
+private fun BannerCard(title: String, body: String, onDismiss: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .background(Brand.copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+            .padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            if (body.isNotBlank()) {
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFD4D4D8),
+                )
+            }
+        }
+        androidx.compose.material3.IconButton(onClick = onDismiss) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Dismiss",
+                tint = Color(0xFFA1A1AA),
+            )
         }
     }
 }

@@ -69,6 +69,10 @@ export const api = {
   getSettings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'POST', body: patch, auth: true }),
 
+  notifications: () => request('/api/admin/notifications', { auth: true }),
+  pushNotification: (payload) => request('/api/admin/notifications', { method: 'POST', body: payload, auth: true }),
+  deleteNotification: (id) => request(`/api/admin/notifications/${id}`, { method: 'DELETE', auth: true }),
+
   iptvSources: () => request('/api/admin/iptv/sources', { auth: true }),
   iptvImport: (payload) => request('/api/admin/iptv/import', { method: 'POST', body: payload, auth: true }),
   iptvDeleteSource: (url) =>

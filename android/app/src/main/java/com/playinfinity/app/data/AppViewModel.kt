@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +28,10 @@ data class AppUiState(
     val searchResults: List<MediaItem> = emptyList(),
     val searchLoading: Boolean = false,
     val lastChecked: String = "",
+    val mediaCount: Int = 0,
+    val notification: NotificationItem? = null,
+    val dismissedNotificationIds: Set<Int> = emptySet(),
+    val liveConnected: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,17 +42,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ?: UUID.randomUUID().toString().also { prefs.edit().putString("device_id", it).apply() }
 
     private val appVersion: String = runCatching {
-        application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "2.0.0"
-    }.getOrDefault("2.0.0")
+        application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "2.1.0"
+    }.getOrDefault("2.1.0")
 
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
-    /** deviceId -> mediaId -> position in ms */
-    private val progressStore = prefs
-
     init {
         load()
+        startLiveUpdates()
     }
 
     fun load() {
@@ -70,28 +73,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                val settings = withContext(Dispatchers.IO) { Api.service.settings(deviceId) }
-                val movies = withContext(Dispatchers.IO) {
-                    Api.service.media(deviceId = deviceId, type = "movie", limit = 200).items
-                }
-                val anime = withContext(Dispatchers.IO) {
-                    Api.service.media(deviceId = deviceId, type = "anime", limit = 200).items
-                }
-                val live = withContext(Dispatchers.IO) {
-                    Api.service.media(deviceId = deviceId, type = "live", limit = 400).items
-                }
-
-                val stamp = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
-
-                _state.value = _state.value.copy(
-                    loading = false,
-                    banned = false,
-                    settings = settings,
-                    movies = movies,
-                    anime = anime,
-                    live = live,
-                    lastChecked = stamp,
-                )
+                fetchCatalogue(showLoading = true)
             } catch (e: Exception) {
                 val message = e.message ?: "Could not reach Play Infinity."
                 val banned = message.contains("403") || message.contains("device_banned")
@@ -102,6 +84,78 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    private suspend fun fetchCatalogue(showLoading: Boolean) {
+        val settings = withContext(Dispatchers.IO) { Api.service.settings(deviceId) }
+        val movies = withContext(Dispatchers.IO) {
+            Api.service.media(deviceId = deviceId, type = "movie", limit = 500).items
+        }
+        val anime = withContext(Dispatchers.IO) {
+            Api.service.media(deviceId = deviceId, type = "anime", limit = 500).items
+        }
+        val live = withContext(Dispatchers.IO) {
+            Api.service.media(deviceId = deviceId, type = "live", limit = 2000).items
+        }
+
+        _state.value = _state.value.copy(
+            loading = if (showLoading) false else _state.value.loading,
+            banned = false,
+            error = null,
+            settings = settings,
+            movies = movies,
+            anime = anime,
+            live = live,
+            mediaCount = movies.size + anime.size + live.size,
+            lastChecked = now(),
+            liveConnected = true,
+        )
+    }
+
+    /** Polls the backend every 8s: ban state, new titles and pushed banners. */
+    private fun startLiveUpdates() {
+        viewModelScope.launch {
+            while (true) {
+                delay(8000)
+                if (_state.value.loading) continue
+                try {
+                    val updates = withContext(Dispatchers.IO) { Api.service.updates(deviceId) }
+
+                    if (updates.banned) {
+                        if (!_state.value.banned) {
+                            _state.value = _state.value.copy(banned = true, liveConnected = true)
+                        }
+                        continue
+                    }
+
+                    val current = _state.value
+                    var next = current.copy(liveConnected = true, lastChecked = now())
+
+                    if (updates.mediaCount != current.mediaCount && updates.mediaCount > 0) {
+                        try {
+                            fetchCatalogue(showLoading = false)
+                            next = _state.value
+                        } catch (_: Exception) {
+                            // keep the old list, try again next tick
+                        }
+                    }
+
+                    if (updates.notification != null && updates.notification.id != current.notification?.id) {
+                        next = next.copy(notification = updates.notification)
+                    }
+
+                    _state.value = next
+                } catch (_: Exception) {
+                    _state.value = _state.value.copy(liveConnected = false)
+                }
+            }
+        }
+    }
+
+    fun dismissNotification(id: Int) {
+        _state.value = _state.value.copy(
+            dismissedNotificationIds = _state.value.dismissedNotificationIds + id,
+        )
     }
 
     fun search(query: String) {
@@ -123,12 +177,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /* -------- local playback position (per episode / title) -------- */
-
     fun savePosition(mediaId: Int, positionMs: Long) {
         if (mediaId <= 0) return
-        progressStore.edit().putLong("pos_$mediaId", positionMs).apply()
+        prefs.edit().putLong("pos_$mediaId", positionMs).apply()
     }
 
-    fun positionOf(mediaId: Int): Long = progressStore.getLong("pos_$mediaId", 0L)
+    fun positionOf(mediaId: Int): Long = prefs.getLong("pos_$mediaId", 0L)
+
+    private fun now(): String =
+        SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())
 }

@@ -4,6 +4,7 @@ const NAV = [
   { id: 'livetv', label: 'Live TV', icon: '◉' },
   { id: 'episodes', label: 'Episodes', icon: '▷' },
   { id: 'devices', label: 'Devices', icon: '▣' },
+  { id: 'notifications', label: 'Notifications', icon: '✉' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
   { id: 'legal', label: 'Legal', icon: '§' },
 ];

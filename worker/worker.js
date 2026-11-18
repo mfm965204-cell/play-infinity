@@ -331,6 +331,39 @@ async function handlePublic(request, env, url) {
     return json({ ok: true, device_id: deviceId, banned: Boolean(row && row.banned === 1) });
   }
 
+  // Live updates for the app: ban state, catalogue version and the latest banner.
+  // Handled before the ban gate so a banned device can learn that it is banned.
+  if (path === '/api/updates') {
+    const deviceId = deviceIdOf(request, url);
+    let banned = false;
+    if (deviceId) {
+      const row = await db.prepare('SELECT banned FROM devices WHERE device_id = ?').bind(deviceId).first();
+      banned = Boolean(row && row.banned === 1);
+      if (deviceId) {
+        await db.prepare("UPDATE devices SET last_seen = datetime('now') WHERE device_id = ?").bind(deviceId).run();
+      }
+    }
+    const media = await db.prepare('SELECT COUNT(*) AS n, MAX(id) AS latest FROM media').first();
+    const note = await db
+      .prepare('SELECT id, title, body, created_at FROM notifications WHERE active = 1 ORDER BY id DESC LIMIT 1')
+      .first();
+    return json({
+      banned,
+      server_time: new Date().toISOString(),
+      media_count: media ? media.n : 0,
+      latest_media_id: media ? media.latest : 0,
+      notification: note || null,
+      app_version: (await getSetting(db, 'app_version')) || '2.1.0',
+    });
+  }
+
+  if (path === '/api/notifications') {
+    const { results } = await db
+      .prepare('SELECT id, title, body, created_at FROM notifications WHERE active = 1 ORDER BY id DESC LIMIT 10')
+      .all();
+    return json({ items: results || [] });
+  }
+
   const banned = await bannedResponse(env, deviceIdOf(request, url));
   if (banned) return banned;
 
@@ -345,7 +378,7 @@ async function handlePublic(request, env, url) {
     const type = url.searchParams.get('type');
     const genre = url.searchParams.get('genre');
     const q = url.searchParams.get('q');
-    const limit = Math.min(Math.max(pickNumber(url.searchParams.get('limit'), 100), 1), 400);
+    const limit = Math.min(Math.max(pickNumber(url.searchParams.get('limit'), 100), 1), 2000);
 
     const where = [];
     const params = [];
@@ -468,6 +501,38 @@ async function handleAdmin(request, env, url) {
     await db.prepare('DELETE FROM sessions').run();
     await logActivity(db, 'secret', 'Admin secret rotated');
     return json({ ok: true, sessions_invalidated: true });
+  }
+
+  /* ---------------- notifications ---------------- */
+
+  if (path === '/api/admin/notifications' && request.method === 'GET') {
+    const { results } = await db.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 100').all();
+    return json({ items: results || [] });
+  }
+
+  if (path === '/api/admin/notifications' && request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return error('invalid_json');
+    }
+    const title = pickString(body?.title);
+    if (!title) return error('title_required');
+    const message = pickString(body?.body);
+    const inserted = await db
+      .prepare('INSERT INTO notifications (title, body, active) VALUES (?, ?, 1) RETURNING id')
+      .bind(title, message)
+      .first();
+    await logActivity(db, 'notification.push', title);
+    return json({ ok: true, id: inserted ? inserted.id : null });
+  }
+
+  const deleteNotification = path.match(/^\/api\/admin\/notifications\/(\d+)$/);
+  if (deleteNotification && request.method === 'DELETE') {
+    await db.prepare('DELETE FROM notifications WHERE id = ?').bind(Number(deleteNotification[1])).run();
+    await logActivity(db, 'notification.delete', `#${deleteNotification[1]}`);
+    return json({ ok: true });
   }
 
   /* ---------------- devices ---------------- */
@@ -819,6 +884,60 @@ export default {
       } catch {
         return new Response('Server error', { status: 500 });
       }
+    }
+
+    // Server-sent events for the studio console (token in the query string because
+    // EventSource cannot send an Authorization header).
+    if (url.pathname === '/api/events') {
+      const token = url.searchParams.get('token') || '';
+      const authed = token
+        ? await isAdmin(new Request(url.origin + '/api/admin/stats', { headers: { Authorization: `Bearer ${token}` } }), env)
+        : false;
+      if (!authed) return error('unauthorized', 401);
+
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const encoder = new TextEncoder();
+
+      const push = async (payload) => {
+        await writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      };
+
+      (async () => {
+        try {
+          for (let tick = 0; tick < 60; tick++) {
+            const devices = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices').first();
+            const banned = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE banned = 1').first();
+            const media = await env.DB.prepare('SELECT COUNT(*) AS n, MAX(id) AS latest FROM media').first();
+            await push({
+              type: 'stats',
+              devices: devices ? devices.n : 0,
+              banned: banned ? banned.n : 0,
+              media: media ? media.n : 0,
+              latest_media_id: media ? media.latest : 0,
+              at: new Date().toISOString(),
+            });
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+        } catch {
+          /* client went away */
+        } finally {
+          try {
+            await writer.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      })();
+
+      return new Response(readable, {
+        headers: {
+          ...CORS,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+        },
+      });
     }
 
     if (!url.pathname.startsWith('/api/')) {

@@ -98,9 +98,6 @@ fun SettingsScreen(
                     legalTitle = "Terms & Conditions"
                     legalBody = settings.termsConditions.ifBlank { "No terms published yet." }
                 }
-                LegalRow("Open web version") {
-                    openUrl(context, Api.BASE_URL + "privacy")
-                }
             }
         }
 

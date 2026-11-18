@@ -28,6 +28,9 @@ interface PlayInfinityApi {
     @GET("api/settings")
     suspend fun settings(@Header("X-Device-Id") deviceId: String): AppSettings
 
+    @GET("api/updates")
+    suspend fun updates(@Header("X-Device-Id") deviceId: String): UpdatesResponse
+
     @POST("api/register")
     suspend fun register(@Body body: RegisterBody): RegisterResponse
 }

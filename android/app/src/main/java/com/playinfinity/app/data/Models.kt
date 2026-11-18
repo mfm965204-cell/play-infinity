@@ -87,6 +87,21 @@ data class RegisterResponse(
     val banned: Boolean = false,
 )
 
+data class NotificationItem(
+    val id: Int = 0,
+    val title: String = "",
+    val body: String = "",
+    @SerializedName("created_at") val createdAt: String = "",
+)
+
+data class UpdatesResponse(
+    val banned: Boolean = false,
+    @SerializedName("media_count") val mediaCount: Int = 0,
+    @SerializedName("latest_media_id") val latestMediaId: Int = 0,
+    val notification: NotificationItem? = null,
+    @SerializedName("app_version") val appVersion: String = "2.1.0",
+)
+
 data class AppSettings(
     val maintenance: String = "0",
     @SerializedName("maintenance_message") val maintenanceMessage: String = "",
