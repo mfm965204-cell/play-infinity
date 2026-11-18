@@ -23,8 +23,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "Using Android SDK at $SDK"
+          ls "$SDK"
+          echo "sdk.dir=$SDK" > local.properties
+          SDKMANAGER=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          echo "sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" 2>&1 | tail -5
 
       - name: Generate signing key
         run: |
@@ -36,11 +50,8 @@ jobs:
             -alias playinfinity -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Play Infinity, OU=Mobile, O=Play Infinity, L=Mumbai, C=IN"
 
-      - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
-
       - name: Build release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Show output
         run: ls -la app/build/outputs/apk/release/
