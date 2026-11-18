@@ -167,7 +167,7 @@ fun PlayerScreen(
                 .filter { it.type == C.TRACK_TYPE_AUDIO }
                 .mapIndexed { index, group ->
                     val fmt = group.getTrackFormat(0)
-                    fmt.label ?: fmt.language ?: "Audio ${index + 1}" to group.mediaTrackGroup
+                    (fmt.label ?: fmt.language ?: "Audio ${index + 1}") to group.mediaTrackGroup
                 }
             delay(500)
         }
