@@ -152,7 +152,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                             onBack = { navController.popBackStack() },
                             onPlay = { url, format, title, live ->
                                 navController.navigate(
-                                    "player?url=${Uri.encode(url)}&format=$format" +
+                                    "player?id=$id&url=${Uri.encode(url)}&format=$format" +
                                         "&title=${Uri.encode(title)}&live=$live",
                                 )
                             },
@@ -160,8 +160,9 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     }
 
                     composable(
-                        route = "player?url={url}&format={format}&title={title}&live={live}",
+                        route = "player?id={id}&url={url}&format={format}&title={title}&live={live}",
                         arguments = listOf(
+                            navArgument("id") { type = NavType.IntType; defaultValue = 0 },
                             navArgument("url") { type = NavType.StringType; defaultValue = "" },
                             navArgument("format") { type = NavType.StringType; defaultValue = "mp4" },
                             navArgument("title") { type = NavType.StringType; defaultValue = "" },
@@ -169,11 +170,15 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         ),
                     ) { entry ->
                         PlayerScreen(
+                            mediaId = entry.arguments?.getInt("id") ?: 0,
                             url = entry.arguments?.getString("url") ?: "",
                             format = entry.arguments?.getString("format") ?: "mp4",
                             title = entry.arguments?.getString("title") ?: "",
                             live = entry.arguments?.getBoolean("live") ?: false,
                             onBack = { navController.popBackStack() },
+                            onOpenSuggested = { suggestedId ->
+                                navController.navigate("detail/$suggestedId")
+                            },
                         )
                     }
                 }
@@ -183,7 +188,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
 }
 
 private fun playerRoute(item: MediaItem): String =
-    "player?url=${Uri.encode(item.videoUrl)}&format=${item.format}" +
+    "player?id=${item.id}&url=${Uri.encode(item.videoUrl)}&format=${item.format}" +
         "&title=${Uri.encode(item.title)}&live=${item.isLive}"
 
 @Composable

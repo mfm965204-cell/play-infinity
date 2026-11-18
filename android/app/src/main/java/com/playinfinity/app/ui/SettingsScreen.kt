@@ -54,7 +54,6 @@ fun SettingsScreen(settings: AppSettings, onRefresh: () -> Unit) {
         item {
             SettingsCard(title = "Play Infinity") {
                 InfoRow("App version", settings.appVersion)
-                InfoRow("Server", "playinfinity.mfm965204.workers.dev")
                 Spacer(Modifier.height(10.dp))
                 Button(onClick = onRefresh) { Text("Check for updates") }
             }

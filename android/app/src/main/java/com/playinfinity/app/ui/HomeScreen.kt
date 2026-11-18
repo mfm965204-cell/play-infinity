@@ -84,7 +84,7 @@ fun HomeScreen(
         }
         if (state.settings.isLiveEnabled) {
             item(key = "live") {
-                RowSection("Live TV", state.media.filter { it.type == "live" }, onOpen)
+                LiveRowSection("Live TV · India", state.media.filter { it.type == "live" }, onOpen)
             }
         }
     }
