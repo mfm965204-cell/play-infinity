@@ -37,7 +37,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = _state.value.copy(loading = true, error = null)
             try {
                 val settings = Api.service.settings()
-                val media = Api.service.media().items
+                // The catalogue can hold hundreds of live channels, so fetch each
+                // shelf by type instead of one capped page of everything.
+                val movies = Api.service.media(type = "movie", limit = 100).items
+                val series = Api.service.media(type = "series", limit = 100).items
+                val live = Api.service.media(type = "live", limit = 80).items
+                val media = movies + series + live
                 _state.value = _state.value.copy(loading = false, settings = settings, media = media)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(

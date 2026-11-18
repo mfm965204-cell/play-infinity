@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 
 const EMPTY = {
@@ -16,9 +16,34 @@ const EMPTY = {
   featured: false,
 };
 
-export default function MediaPanel({ media, editing, setEditing, onSaved, onError, onAddEpisode }) {
+const PAGE = 40;
+
+export default function MediaPanel({ refreshKey, editing, setEditing, onSaved, onError, onAddEpisode }) {
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [type, setType] = useState('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState([]);
+
+  const load = useCallback(
+    async (nextOffset = offset) => {
+      try {
+        const res = await api.listMedia({ type, q: search, limit: PAGE, offset: nextOffset });
+        setItems(res.items || []);
+        setTotal(res.total || 0);
+      } catch (e) {
+        onError(e.message);
+      }
+    },
+    [type, search, offset, onError],
+  );
+
+  useEffect(() => {
+    load(offset);
+  }, [load, offset, refreshKey]);
 
   useEffect(() => {
     if (editing) {
@@ -44,6 +69,7 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
       setForm(EMPTY);
       setEditing(null);
       await onSaved();
+      await load(offset);
     } catch (e) {
       onError(e.message);
     } finally {
@@ -57,13 +83,34 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
       await api.deleteMedia(item.id);
       if (form.id === item.id) setForm(EMPTY);
       await onSaved();
+      await load(offset);
     } catch (e) {
       onError(e.message);
     }
   }
 
+  async function bulkDelete() {
+    if (!selected.length) return;
+    if (!window.confirm(`Delete ${selected.length} selected title(s)?`)) return;
+    try {
+      await api.bulkDelete(selected);
+      setSelected([]);
+      await onSaved();
+      await load(0);
+      setOffset(0);
+    } catch (e) {
+      onError(e.message);
+    }
+  }
+
+  function toggleSelected(id) {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+    );
+  }
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
       <form onSubmit={save} className="card space-y-3 self-start">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-bold">{form.id ? 'Edit title' : 'Add a title'}</h2>
@@ -147,7 +194,7 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
         <div>
           <label className="label">Description</label>
           <textarea
-            className="input min-h-[90px]"
+            className="input min-h-[80px]"
             value={form.description}
             onChange={(e) => update({ description: e.target.value })}
           />
@@ -155,7 +202,7 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
 
         {form.type === 'series' ? (
           <p className="rounded-lg border border-edge bg-ink/60 p-3 text-xs text-zinc-400">
-            Series stream from episodes. Save the series first, then add episodes in the <b>Videos</b> tab.
+            Series stream from episodes. Save the series, then attach episodes in the <b>Videos</b> tab.
           </p>
         ) : (
           <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3">
@@ -195,20 +242,45 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
       </form>
 
       <div className="card self-start">
-        <h2 className="mb-4 text-base font-bold">Catalogue ({media.length})</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="mr-auto text-base font-bold">Catalogue ({total})</h2>
+          <select className="input w-auto py-1.5 text-xs" value={type} onChange={(e) => { setType(e.target.value); setOffset(0); }}>
+            <option value="">All types</option>
+            <option value="movie">Movies</option>
+            <option value="series">Series</option>
+            <option value="live">Live TV</option>
+          </select>
+          <input
+            className="input w-40 py-1.5 text-xs"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+          />
+          {selected.length ? (
+            <button className="btn-danger px-2 py-1 text-xs" onClick={bulkDelete}>
+              Delete {selected.length}
+            </button>
+          ) : null}
+        </div>
+
         <div className="space-y-2">
-          {media.map((m) => (
-            <div
-              key={m.id}
-              className="flex items-center gap-3 rounded-xl border border-edge bg-ink/50 p-2.5"
-            >
-              <div className="h-14 w-10 shrink-0 overflow-hidden rounded-md bg-zinc-900">
-                {m.cover_url ? <img src={m.cover_url} alt="" className="h-full w-full object-cover" /> : null}
+          {items.map((m) => (
+            <div key={m.id} className="flex items-center gap-3 rounded-xl border border-edge bg-ink/50 p-2.5">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-rose-600"
+                checked={selected.includes(m.id)}
+                onChange={() => toggleSelected(m.id)}
+              />
+              <div className="h-12 w-9 shrink-0 overflow-hidden rounded-md bg-zinc-900">
+                {m.cover_url ? <img src={m.cover_url} alt="" className="h-full w-full object-contain" /> : null}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{m.title}</p>
                 <p className="truncate text-xs text-zinc-500">
-                  {m.type} · {m.release_year || '—'} · ★ {m.rating} {m.featured ? '· featured' : ''}
+                  {m.type} · {m.release_year || '—'} · ★ {m.rating}
+                  {m.featured ? ' · featured' : ''}
+                  {m.source ? ' · imported' : ''}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
@@ -226,8 +298,30 @@ export default function MediaPanel({ media, editing, setEditing, onSaved, onErro
               </div>
             </div>
           ))}
-          {!media.length ? <p className="text-sm text-zinc-500">Nothing here yet.</p> : null}
+          {!items.length ? <p className="text-sm text-zinc-500">Nothing here yet.</p> : null}
         </div>
+
+        {total > PAGE ? (
+          <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+            <button
+              className="btn-ghost px-2 py-1"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE))}
+            >
+              ← Previous
+            </button>
+            <span>
+              {offset + 1}–{Math.min(offset + PAGE, total)} of {total}
+            </span>
+            <button
+              className="btn-ghost px-2 py-1"
+              disabled={offset + PAGE >= total}
+              onClick={() => setOffset(offset + PAGE)}
+            >
+              Next →
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

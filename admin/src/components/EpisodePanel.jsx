@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 
 const EMPTY = {
@@ -11,42 +11,51 @@ const EMPTY = {
   format: 'hls',
 };
 
-export default function EpisodePanel({ media, onSaved, onError }) {
-  const series = media.filter((m) => m.type === 'series');
+export default function EpisodePanel({ refreshKey, onSaved, onError }) {
+  const [series, setSeries] = useState([]);
   const [selected, setSelected] = useState(0);
   const [form, setForm] = useState(EMPTY);
   const [episodes, setEpisodes] = useState([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!series.length) return;
-    const preselect = window.__piPreselect;
-    if (preselect) {
-      window.__piPreselect = null;
-      setSelected(preselect);
-      setForm((f) => ({ ...f, media_id: preselect }));
-      return;
-    }
-    if (!selected) {
-      setSelected(series[0].id);
-      setForm((f) => ({ ...f, media_id: series[0].id }));
-    }
-  }, [series, selected]);
-
-  useEffect(() => {
-    if (!selected) {
-      setEpisodes([]);
-      return;
-    }
     let alive = true;
     api
-      .mediaDetail(selected)
-      .then((d) => alive && setEpisodes(d.episodes || []))
+      .listMedia({ type: 'series', limit: 200 })
+      .then((res) => {
+        if (!alive) return;
+        const items = res.items || [];
+        setSeries(items);
+        if (!selected && items.length) {
+          const preselect = window.__piPreselect;
+          const next = preselect || items[0].id;
+          window.__piPreselect = null;
+          setSelected(next);
+          setForm((f) => ({ ...f, media_id: next }));
+        }
+      })
       .catch((e) => onError(e.message));
     return () => {
       alive = false;
     };
+  }, [refreshKey, onError]);
+
+  const loadEpisodes = useCallback(async () => {
+    if (!selected) {
+      setEpisodes([]);
+      return;
+    }
+    try {
+      const detail = await api.mediaDetail(selected);
+      setEpisodes(detail.episodes || []);
+    } catch (e) {
+      onError(e.message);
+    }
   }, [selected, onError]);
+
+  useEffect(() => {
+    loadEpisodes();
+  }, [loadEpisodes]);
 
   function update(patch) {
     setForm((f) => ({ ...f, ...patch }));
@@ -63,9 +72,13 @@ export default function EpisodePanel({ media, onSaved, onError }) {
         season: Number(form.season),
         episode_number: Number(form.episode_number),
       });
-      setForm({ ...EMPTY, media_id: form.media_id, season: form.season, episode_number: Number(form.episode_number) + 1 });
-      const d = await api.mediaDetail(Number(form.media_id));
-      setEpisodes(d.episodes || []);
+      setForm({
+        ...EMPTY,
+        media_id: form.media_id,
+        season: form.season,
+        episode_number: Number(form.episode_number) + 1,
+      });
+      await loadEpisodes();
       await onSaved();
     } catch (e) {
       onError(e.message);
@@ -74,12 +87,11 @@ export default function EpisodePanel({ media, onSaved, onError }) {
     }
   }
 
-  async function remove(ep) {
-    if (!window.confirm(`Delete ${ep.title}?`)) return;
+  async function remove(episode) {
+    if (!window.confirm(`Delete ${episode.title}?`)) return;
     try {
-      await api.deleteEpisode(ep.id);
-      const d = await api.mediaDetail(selected);
-      setEpisodes(d.episodes || []);
+      await api.deleteEpisode(episode.id);
+      await loadEpisodes();
       await onSaved();
     } catch (e) {
       onError(e.message);
@@ -179,18 +191,18 @@ export default function EpisodePanel({ media, onSaved, onError }) {
         <h2 className="mb-1 text-base font-bold">{current ? current.title : 'Episodes'}</h2>
         <p className="mb-4 text-xs text-zinc-500">{episodes.length} episode(s)</p>
         <div className="space-y-2">
-          {episodes.map((ep) => (
-            <div key={ep.id} className="flex items-center gap-3 rounded-xl border border-edge bg-ink/50 p-2.5">
+          {episodes.map((episode) => (
+            <div key={episode.id} className="flex items-center gap-3 rounded-xl border border-edge bg-ink/50 p-2.5">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/5 text-xs font-bold text-zinc-300">
-                S{ep.season}E{ep.episode_number}
+                S{episode.season}E{episode.episode_number}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{ep.title}</p>
+                <p className="truncate text-sm font-medium">{episode.title}</p>
                 <p className="truncate text-xs text-zinc-500">
-                  {ep.format.toUpperCase()} · {ep.video_url}
+                  {episode.format.toUpperCase()} · {episode.video_url}
                 </p>
               </div>
-              <button className="btn-danger px-2 py-1 text-xs" onClick={() => remove(ep)}>
+              <button className="btn-danger px-2 py-1 text-xs" onClick={() => remove(episode)}>
                 Delete
               </button>
             </div>

@@ -174,7 +174,10 @@ fun PlayerScreen(
 
     LaunchedEffect(mediaId) {
         try {
-            val all = withContext(Dispatchers.IO) { Api.service.media().items }
+            val types = if (live) listOf("live") else listOf("movie", "series")
+            val all = withContext(Dispatchers.IO) {
+                types.flatMap { type -> Api.service.media(type = type, limit = 12).items }
+            }
             suggestions = all.filter { it.id != mediaId }.take(18)
         } catch (_: Exception) {
             suggestions = emptyList()

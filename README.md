@@ -54,6 +54,13 @@ Admin, `Authorization: Bearer <session token>` or `Bearer <admin secret>`:
 | `GET/POST /api/admin/media`, `DELETE /api/admin/media/:id` | catalogue CRUD |
 | `POST /api/admin/episode`, `DELETE /api/admin/episode/:id` | episode CRUD |
 | `GET/POST /api/admin/settings` | feature flags, legal text, developer links |
+| `GET /api/admin/stats` | counters by type, episode count, source count, live categories |
+| `GET /api/admin/activity` | last 30 admin actions |
+| `GET /api/admin/export` | whole catalogue + settings as JSON |
+| `POST /api/admin/media/bulk-delete` | `{ids: []}` |
+| `GET /api/admin/iptv/sources` | imported playlists and their channel counts |
+| `POST /api/admin/iptv/import` | `{url}` or `{m3u}` → fetch, parse, insert live channels |
+| `POST /api/admin/iptv/delete-source` | `{url}` → remove every channel from that playlist |
 
 The admin secret is stored as a SHA-256 hash in the `settings` table, never in plain text,
 and compared in constant time.
@@ -76,6 +83,14 @@ expires_at).
   app version, developer links, and the change-secret form.
 * Legal editor for the privacy policy and terms, with public preview pages.
 * Footer with the developer signature, portfolio and support links.
+
+* **Live TV tab** — import channels from any IPTV provider by pasting an M3U/M3U8 playlist URL
+  (the Worker fetches and parses it server-side, de-duplicating by stream URL), or paste raw
+  M3U text for providers that need a custom user agent. Sources are tracked so a whole import
+  can be removed in one click. Channels are searchable, editable and deletable, and a single
+  channel can be added by hand.
+* **Overview** — counters per type, live-channel mix by category, recent admin activity, JSON export.
+* **Media** — server-side search, type filter, pagination, multi-select bulk delete.
 
 Build it with `npm install && npm run build`; `dist/` is what gets uploaded as Worker assets.
 
@@ -113,3 +128,7 @@ Locally: `cd android && ./gradlew assembleRelease` (add `keystore/ci.jks` to sig
   and the web instantly.
 * Login has no lockout or rate limiting — put Cloudflare Access or a rate-limit rule in
   front of `/api/admin/login` before this goes anywhere public.
+* The app allows cleartext HTTP because many IPTV providers still serve plain `http://`
+  streams; the API itself is HTTPS. Every channel imported from the public iptv-org
+  playlist for India (767 channels, categories derived from the channel name) is already
+  in D1 under the source `iptv-org · India`.

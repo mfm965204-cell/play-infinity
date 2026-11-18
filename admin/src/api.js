@@ -9,6 +9,15 @@ export function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+function query(params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, value);
+  });
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+
 async function request(path, { method = 'GET', body, auth = false } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -32,6 +41,7 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
     const message = (data && (data.error || data.message)) || `HTTP ${res.status}`;
     const err = new Error(message);
     err.status = res.status;
+    err.payload = data;
     throw err;
   }
   return data;
@@ -42,9 +52,14 @@ export const api = {
   changeSecret: (current, next) =>
     request('/api/admin/secret', { method: 'POST', body: { current, next }, auth: true }),
 
-  listMedia: () => request('/api/admin/media', { auth: true }),
+  stats: () => request('/api/admin/stats', { auth: true }),
+  activity: () => request('/api/admin/activity', { auth: true }),
+  exportAll: () => request('/api/admin/export', { auth: true }),
+
+  listMedia: (params) => request(`/api/admin/media${query(params)}`, { auth: true }),
   saveMedia: (media) => request('/api/admin/media', { method: 'POST', body: media, auth: true }),
   deleteMedia: (id) => request(`/api/admin/media/${id}`, { method: 'DELETE', auth: true }),
+  bulkDelete: (ids) => request('/api/admin/media/bulk-delete', { method: 'POST', body: { ids }, auth: true }),
 
   mediaDetail: (id) => request(`/api/media/${id}`),
   saveEpisode: (episode) => request('/api/admin/episode', { method: 'POST', body: episode, auth: true }),
@@ -52,6 +67,11 @@ export const api = {
 
   getSettings: () => request('/api/admin/settings', { auth: true }),
   saveSettings: (patch) => request('/api/admin/settings', { method: 'POST', body: patch, auth: true }),
+
+  iptvSources: () => request('/api/admin/iptv/sources', { auth: true }),
+  iptvImport: (payload) => request('/api/admin/iptv/import', { method: 'POST', body: payload, auth: true }),
+  iptvDeleteSource: (url) =>
+    request('/api/admin/iptv/delete-source', { method: 'POST', body: { url }, auth: true }),
 
   publicSettings: () => request('/api/settings'),
 };
