@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Play Infinity — Movies, Anime &amp; Live TV</title>
+    <meta
+      name="description"
+      content="Download Play Infinity for Android — movies, anime and live TV in one dark, fast app. Version 2.1.0."
+    />
+    <meta name="theme-color" content="#0B0B0F" />
+    <meta property="og:title" content="Play Infinity — Movies, Anime & Live TV" />
+    <meta property="og:description" content="Download the Play Infinity APK. Movies, anime and live TV in one app." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23E50914'/%3E%3Cpath d='M24 18l22 14-22 14z' fill='white'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="glow" aria-hidden="true"></div>
+
+    <header class="nav">
+      <a class="brand" href="#top">
+        <span class="mark">▶</span>
+        <span>Play Infinity</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="#faq">FAQ</a>
+        <a class="pill" id="nav-download" href="#download">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Android · v<span id="version">2.1.0</span> · <span id="size">14 MB</span></p>
+          <h1>
+            Movies, anime and live TV<br />
+            <span class="gradient-text">in one dark app.</span>
+          </h1>
+          <p class="lede">
+            Play Infinity streams your own catalogue — a poster-first movie shelf, an anime tab with
+            episodes, and 870+ live channels from your IPTV providers. No account, no ads, no noise.
+          </p>
+
+          <div class="cta-row" id="download">
+            <a class="btn primary" id="download-btn" href="/download/latest" download>
+              <span class="btn-icon">⬇</span>
+              <span>
+                <strong>Download APK</strong>
+                <em>v2.1.0 · <span class="size-inline">14 MB</span> · arm64</em>
+              </span>
+            </a>
+            <a class="btn ghost" href="https://github.com/mfm965204-cell/play-infinity" target="_blank" rel="noreferrer">
+              Source on GitHub
+            </a>
+          </div>
+
+          <p class="micro">
+            Sideload only — Android will ask you to allow installs from your browser the first time.
+          </p>
+        </div>
+
+        <div class="hero-badge" aria-hidden="true">
+          <div class="badge-ring"></div>
+          <div class="badge-core">
+            <span>▶</span>
+            <small>2.1.0</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="strip" aria-label="Highlights">
+        <div class="strip-item"><b>870+</b><span>live channels</span></div>
+        <div class="strip-item"><b>3</b><span>tabs of content</span></div>
+        <div class="strip-item"><b>0</b><span>accounts needed</span></div>
+        <div class="strip-item"><b>~15 MB</b><span>APK size</span></div>
+      </section>
+
+      <section id="features" class="section">
+        <h2>What's inside</h2>
+        <p class="section-lede">Five tabs, nothing else. Built for phones that are not flagship.</p>
+
+        <div class="grid">
+          <article class="card">
+            <span class="card-icon">▤</span>
+            <h3>Movies</h3>
+            <p>Auto-rotating hero with a slow Ken Burns zoom, then genre rows you can flick through.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">★</span>
+            <h3>Anime</h3>
+            <p>Its own tab: genre chips, latest and popular rows, season picker and an episode list.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">◉</span>
+            <h3>Live TV</h3>
+            <p>Every channel from every provider you import, with category chips and channel search.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">⌕</span>
+            <h3>Search</h3>
+            <p>One bar over movies, anime and live channels, grouped and debounced as you type.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">⚙</span>
+            <h3>Settings</h3>
+            <p>Device status, playback, legal pages and the developer links — in that order.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">⚡</span>
+            <h3>Live updates</h3>
+            <p>New titles, pushed banners and device bans arrive without reinstalling anything.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="install" class="section">
+        <h2>Install in three steps</h2>
+        <ol class="steps">
+          <li>
+            <b>Download the APK</b>
+            <span>Tap the download button above. The file is about 14 MB.</span>
+          </li>
+          <li>
+            <b>Allow the install</b>
+            <span>Android will offer “Settings → allow from this source”. Accept it once.</span>
+          </li>
+          <li>
+            <b>Open and watch</b>
+            <span>The app registers this device on first launch and loads the catalogue.</span>
+          </li>
+        </ol>
+        <p class="note">
+          Play Protect may warn about an app installed outside the Play Store — that is expected for sideloaded
+          builds. Choose “Install anyway”.
+        </p>
+      </section>
+
+      <section id="faq" class="section">
+        <h2>Questions</h2>
+        <div class="faq">
+          <details>
+            <summary>Do I need an account?</summary>
+            <p>No. There is no sign-in anywhere in the app. The device is identified by a random id created on first launch.</p>
+          </details>
+          <details>
+            <summary>Why does Android warn me?</summary>
+            <p>The APK is signed with a build key rather than distributed through the Play Store, so Play Protect flags it. Install anyway if you trust the source.</p>
+          </details>
+          <details>
+            <summary>A live channel won't play</summary>
+            <p>These are public IPTV restreams — some are geo-locked or simply offline. The player retries six times before showing an error; try another channel or import a different provider from the studio console.</p>
+          </details>
+          <details>
+            <summary>Will I get updates?</summary>
+            <p>Catalogue changes, banners and settings arrive instantly. A new APK has to be installed manually.</p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>
+        <p class="footer-brand">Play Infinity</p>
+        <p class="footer-meta">Developed by Mohammad Fahad Mir</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://portfolio.mfm965204.workers.dev/" target="_blank" rel="noreferrer">Portfolio</a>
+        <a href="https://www.instagram.com/fahad0101r" target="_blank" rel="noreferrer">Support · Instagram</a>
+        <a href="https://github.com/mfm965204-cell/play-infinity" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
